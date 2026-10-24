@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block title %}Billing & Payment Portal{% endblock %}
+{% block page_title %}Disbursal & Payment Entry Portal{% endblock %}
+{% block page_subtitle %}Submit verified invoice accounts for automated treasury disbursement{% endblock %}
+
+{% block content %}
+<div style="max-width: 760px; margin: 0 auto;">
+  <!-- Success Banner (hidden by default unless submitted) -->
+  <div id="submission-success-banner" class="alert alert-success" style="display: none;">
+    <div style="font-size: 1.5rem;">🎉</div>
+    <div>
+      <h4 style="margin-bottom: 0.25rem;">Payment Submission Confirmed!</h4>
+      <p id="success-message-text" style="font-size: 0.88rem;"></p>
+      <div style="margin-top: 0.5rem; font-weight: 700;">
+        Confirmation ID: <code id="confirmation-code-display" style="background: rgba(0,0,0,0.3); padding: 0.2rem 0.6rem; border-radius: 4px; color: #fff;"></code>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Banner -->
+  <div id="submission-error-banner" class="alert alert-error" style="display: none;">
+    <div style="font-size: 1.5rem;">⚠️</div>
+    <div>
+      <h4 style="margin-bottom: 0.25rem;">Submission Failed</h4>
+      <p id="error-message-text" style="font-size: 0.88rem;"></p>
+    </div>
+  </div>
+
+  <div class="glass-panel" id="billing-form-card">
+    <div class="panel-header">
+      <h3>Invoice Payment Entry Form</h3>
+      <span style="font-size: 0.8rem; color: var(--text-faint);">All inputs are audited and cryptographically stamped</span>
+    </div>
+
+    <form id="billing-form" onsubmit="handleBillingSubmit(event)">
+      <div class="form-group">
+        <label class="form-label" for="input-invoice-id">Invoice Number / ID *</label>
+        <input 
+          type="text" 
+          id="input-invoice-id" 
+          name="invoice_id" 
+          class="form-control" 
+          placeholder="e.g. INV-1042" 
+          value="{{ preset.id or '' }}" 
+          required
+        >
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="input-company">Vendor / Company Legal Name *</label>
+        <input 
+          type="text" 
+          id="input-company" 
+          name="company" 
+          class="form-control" 
+          placeholder="e.g. TechCorp Solutions" 
+          value="{{ preset.company or '' }}" 
+          required
+        >
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
+        <div class="form-group">
+          <label class="form-label" for="input-amount">Payment Amount (INR ₹) *</label>
+          <input 
+            type="number" 
+            step="any" 
+            id="input-amount" 
+            name="amount" 
+            class="form-control" 
+            placeholder="e.g. 84500" 
+            value="{{ preset.amount or '' }}" 
+            required
+          >
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="input-due-date">Due Date (YYYY-MM-DD) *</label>
+          <input 
+            type="date" 
+            id="input-due-date" 
+            name="due_date" 
+            class="form-control" 
+            value="{{ preset.due_date or '' }}" 
+            required
+          >
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="select-category">Expense Category</label>
+        <select id="select-category" name="category" class="form-control">
+          <option value="Software Development" {% if preset.category == 'Software Development' %}selected{% endif %}>Software Development & Engineering</option>
+          <option value="Cloud Infrastructure" {% if preset.category == 'Cloud Infrastructure' %}selected{% endif %}>Cloud Infrastructure & Hosting</option>
+          <option value="UI/UX Design" {% if preset.category == 'UI/UX Design' %}selected{% endif %}>Product Design & UI/UX</option>
+          <option value="Data Analytics" {% if preset.category == 'Data Analytics' %}selected{% endif %}>Data Analytics & Pipelines</option>
+          <option value="Security Audit" {% if preset.category == 'Security Audit' %}selected{% endif %}>Cybersecurity & Compliance</option>
+          <option value="General Operations" {% if not preset.category %}selected{% endif %}>General Operations</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="input-notes">Audit / Approver Notes</label>
+        <textarea 
+          id="input-notes" 
+          name="notes" 
+          class="form-control" 
+          rows="3" 
+          placeholder="Automated clearance by AI Task Worker agent"
+        >Approved and verified against vendor invoice document.</textarea>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem;">
+        <button type="button" class="btn btn-secondary" onclick="window.history.back()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="btn-submit-billing">
+          Submit for Disbursement →
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+async function handleBillingSubmit(event) {
+  event.preventDefault();
+  
+  const submitBtn = document.getElementById("btn-submit-billing");
+  const successBanner = document.getElementById("submission-success-banner");
+  const errorBanner = document.getElementById("submission-error-banner");
+  
+  successBanner.style.display = "none";
+  errorBanner.style.display = "none";
+  
+  submitBtn.disabled = true;
+  submitBtn.innerText = "Processing submission...";
+
+  const payload = {
+    invoice_id: document.getElementById("input-invoice-id").value,
+    company: document.getElementById("input-company").value,
+    amount: document.getElementById("input-amount").value,
+    due_date: document.getElementById("input-due-date").value,
+    category: document.getElementById("select-category").value,
+    notes: document.getElementById("input-notes").value
+  };
+
+  try {
+    const res = await fetch("/api/billing/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      document.getElementById("success-message-text").innerText = data.message;
+      document.getElementById("confirmation-code-display").innerText = data.confirmation_id;
+      successBanner.style.display = "flex";
+      
+      // Clear form inputs
+      document.getElementById("billing-form").reset();
+    } else {
+      document.getElementById("error-message-text").innerText = data.error || "Failed to submit billing entry.";
+      errorBanner.style.display = "flex";
+    }
+  } catch (err) {
+    document.getElementById("error-message-text").innerText = "Network or server error: " + err.message;
+    errorBanner.style.display = "flex";
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerText = "Submit for Disbursement →";
+  }
+}
+</script>
+{% endblock %}

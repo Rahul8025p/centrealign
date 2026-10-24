@@ -1,0 +1,22 @@
+=======================================================
+               INVOICE: INV-1044
+=======================================================
+ISSUED TO: Apex Enterprise Systems Pvt Ltd
+FROM:      StartupXYZ
+CONTACT:   Amit Verma (amit@startupxyz.in)
+ISSUE DATE: 2024-10-10
+DUE DATE:   2024-11-10
+STATUS:     OVERDUE
+
+SERVICE CATEGORY: UI/UX Design
+DESCRIPTION:      Product design and prototyping for mobile app - Sprint 3
+
+-------------------------------------------------------
+SUBTOTAL:   INR 55,000
+TAX (18%):  INR 9,900
+TOTAL DUE:  INR 64,900
+-------------------------------------------------------
+PAYMENT TERMS: Net 30 Days.
+Bank Transfer to HDFC Bank A/C: 50100234981123, IFSC: HDFC0001234
+Reference invoice number INV-1044 during transfer.
+=======================================================

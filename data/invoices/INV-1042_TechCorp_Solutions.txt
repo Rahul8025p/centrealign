@@ -1,0 +1,22 @@
+=======================================================
+               INVOICE: INV-1042
+=======================================================
+ISSUED TO: Apex Enterprise Systems Pvt Ltd
+FROM:      TechCorp Solutions
+CONTACT:   Rahul Sharma (rahul@techcorp.io)
+ISSUE DATE: 2024-10-15
+DUE DATE:   2024-11-15
+STATUS:     PENDING
+
+SERVICE CATEGORY: Software Development
+DESCRIPTION:      Monthly retainer for backend API development services - October 2024
+
+-------------------------------------------------------
+SUBTOTAL:   INR 84,500
+TAX (18%):  INR 15,210
+TOTAL DUE:  INR 99,710
+-------------------------------------------------------
+PAYMENT TERMS: Net 30 Days.
+Bank Transfer to HDFC Bank A/C: 50100234981123, IFSC: HDFC0001234
+Reference invoice number INV-1042 during transfer.
+=======================================================

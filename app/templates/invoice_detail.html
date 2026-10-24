@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Invoice {{ invoice.id }}{% endblock %}
+{% block page_title %}Invoice Details: {{ invoice.id }}{% endblock %}
+{% block page_subtitle %}Full statement of work, tax breakdown, and banking instructions{% endblock %}
+
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto;">
+  <div class="glass-panel">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem; border-bottom: var(--glass-border); padding-bottom: 1.5rem;">
+      <div>
+        <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--accent-cyan); font-weight: 700; letter-spacing: 0.05em;">Vendor Statement</div>
+        <h2 style="font-size: 1.8rem; margin: 0.25rem 0;" id="invoice-id">{{ invoice.id }}</h2>
+        <div style="color: var(--text-muted);">Status: <span class="badge badge-pending">{{ invoice.status }}</span></div>
+      </div>
+      <div style="text-align: right;">
+        <h3 id="invoice-vendor">{{ invoice.company }}</h3>
+        <p style="color: var(--text-muted); font-size: 0.88rem;">{{ invoice.contact }} &lt;{{ invoice.email }}&gt;</p>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted);">Issue Date</div>
+        <div style="font-size: 1rem; font-weight: 600;">{{ invoice.issue_date }}</div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted);">Payment Due Date</div>
+        <div style="font-size: 1.1rem; font-weight: 700; color: var(--accent-amber);" id="invoice-due-date">{{ invoice.due_date }}</div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted);">Service Category</div>
+        <div style="font-size: 1rem; font-weight: 600;" id="invoice-category">{{ invoice.category }}</div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted);">Reference Description</div>
+        <div style="font-size: 0.95rem;">{{ invoice.description }}</div>
+      </div>
+    </div>
+
+    <div style="background: rgba(0,0,0,0.25); border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+        <span>Subtotal:</span>
+        <span>₹{{ "{:,.2f}".format(invoice.amount) }}</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem; color: var(--text-muted);">
+        <span>GST / Tax (18%):</span>
+        <span>₹{{ "{:,.2f}".format(invoice.tax) }}</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; font-size: 1.25rem; font-weight: 700; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.75rem;">
+        <span>Total Payable:</span>
+        <span style="color: var(--accent-emerald);" id="invoice-amount">₹{{ "{:,}".format(invoice.amount) }}</span>
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <a href="/invoices" class="btn btn-secondary">← Back to Invoices</a>
+      <a href="/billing?invoice_id={{ invoice.id }}" class="btn btn-primary" id="btn-proceed-billing">
+        Proceed to Billing Portal →
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}

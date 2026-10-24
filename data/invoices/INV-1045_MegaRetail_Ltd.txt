@@ -1,0 +1,22 @@
+=======================================================
+               INVOICE: INV-1045
+=======================================================
+ISSUED TO: Apex Enterprise Systems Pvt Ltd
+FROM:      MegaRetail Ltd
+CONTACT:   Sunita Patel (sunita@megaretail.com)
+ISSUE DATE: 2024-11-01
+DUE DATE:   2024-12-01
+STATUS:     PENDING
+
+SERVICE CATEGORY: Data Analytics
+DESCRIPTION:      Business intelligence dashboard development and data pipeline setup
+
+-------------------------------------------------------
+SUBTOTAL:   INR 120,000
+TAX (18%):  INR 21,600
+TOTAL DUE:  INR 141,600
+-------------------------------------------------------
+PAYMENT TERMS: Net 30 Days.
+Bank Transfer to HDFC Bank A/C: 50100234981123, IFSC: HDFC0001234
+Reference invoice number INV-1045 during transfer.
+=======================================================

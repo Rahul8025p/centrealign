@@ -1,0 +1,22 @@
+=======================================================
+               INVOICE: INV-1043
+=======================================================
+ISSUED TO: Apex Enterprise Systems Pvt Ltd
+FROM:      GlobalInc Pvt Ltd
+CONTACT:   Priya Mehta (priya@globalinc.com)
+ISSUE DATE: 2024-10-20
+DUE DATE:   2024-11-20
+STATUS:     PENDING
+
+SERVICE CATEGORY: Cloud Infrastructure
+DESCRIPTION:      AWS infrastructure setup and DevOps consulting - Q4 2024
+
+-------------------------------------------------------
+SUBTOTAL:   INR 32,000
+TAX (18%):  INR 5,760
+TOTAL DUE:  INR 37,760
+-------------------------------------------------------
+PAYMENT TERMS: Net 30 Days.
+Bank Transfer to HDFC Bank A/C: 50100234981123, IFSC: HDFC0001234
+Reference invoice number INV-1043 during transfer.
+=======================================================

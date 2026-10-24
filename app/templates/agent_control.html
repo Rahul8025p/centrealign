@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+
+{% block title %}AI Task Worker Mission Control{% endblock %}
+{% block page_title %}AI Task Worker — Autonomous Agent Mission Control{% endblock %}
+{% block page_subtitle %}Live ReAct agent loop, real-time reasoning stream, browser computer-use view, and verification gate{% endblock %}
+
+{% block content %}
+<div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 2rem;">
+  
+  <!-- Left Column: Input, Thought Stream & Plan -->
+  <div>
+    <!-- Goal Input Card -->
+    <div class="glass-panel" style="margin-bottom: 1.5rem;">
+      <div class="panel-header">
+        <h3>Autonomous Task Specification</h3>
+        <span class="badge badge-approved" id="agent-status-badge">Agent Idle</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="task-prompt">Enter Natural Language Goal:</label>
+        <textarea 
+          id="task-prompt" 
+          class="form-control" 
+          rows="3" 
+          placeholder="e.g. Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done."
+        >Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done.</textarea>
+      </div>
+
+      <!-- Quick Preset Buttons -->
+      <div style="margin-bottom: 1.25rem;">
+        <span style="font-size: 0.78rem; color: var(--text-muted); display: block; margin-bottom: 0.5rem; text-transform: uppercase; font-weight: 600;">
+          Preset Enterprise Scenarios:
+        </span>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+          <button class="btn btn-secondary btn-sm" onclick="setPreset('TechCorp')">
+            🏢 TechCorp Retainer (Standard Flow)
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="setPreset('GlobalInc')">
+            ☁️ GlobalInc Cloud (Alternative Vendor)
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="setPreset('StartupXYZ')">
+            ⚠️ StartupXYZ (Overdue Invoice)
+          </button>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; border-top: var(--glass-border); padding-top: 1rem;">
+        <div style="font-size: 0.8rem; color: var(--text-faint);">
+          ReAct Loop • Self-Healing Retries • Independent Verifier
+        </div>
+        <button class="btn btn-primary" id="btn-start-task" onclick="startAgentTask()">
+          🚀 Run Autonomous Worker
+        </button>
+      </div>
+    </div>
+
+    <!-- Live Execution Plan -->
+    <div class="glass-panel" id="plan-panel" style="display: none; margin-bottom: 1.5rem;">
+      <div class="panel-header">
+        <h3>Decomposed Action Plan</h3>
+        <span id="plan-progress-text" style="font-size: 0.85rem; color: var(--accent-cyan);">0 / 0 Steps</span>
+      </div>
+      <div id="plan-steps-container" style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <!-- Step items dynamically populated -->
+      </div>
+    </div>
+
+    <!-- Live Reasoning & Activity Stream -->
+    <div class="glass-panel">
+      <div class="panel-header">
+        <h3>Real-time Reasoning & Activity Stream</h3>
+        <button class="btn btn-secondary btn-sm" onclick="clearLogs()">Clear</button>
+      </div>
+      <div id="activity-log-stream" style="max-height: 480px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.85rem; padding-right: 0.5rem;">
+        <div style="color: var(--text-faint); font-size: 0.88rem; text-align: center; padding: 2rem;">
+          Waiting for task trigger. Click "Run Autonomous Worker" to start the agent loop.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Column: Visual Browser View & Outcome Verification -->
+  <div>
+    <!-- Verification & Evidence Card -->
+    <div class="glass-panel" id="verification-card" style="margin-bottom: 1.5rem; display: none; border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.05);">
+      <div class="panel-header">
+        <h3 style="color: var(--accent-emerald);">🎯 Outcome Verification & Evidence</h3>
+        <span class="badge badge-approved" id="verification-badge">Verified</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+        <div style="background: rgba(0,0,0,0.3); padding: 0.85rem; border-radius: 8px;">
+          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Confirmation ID</div>
+          <div style="font-size: 1rem; font-weight: 700; color: var(--accent-cyan);" id="card-conf-id">-</div>
+        </div>
+        <div style="background: rgba(0,0,0,0.3); padding: 0.85rem; border-radius: 8px;">
+          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Disbursed Amount</div>
+          <div style="font-size: 1rem; font-weight: 700; color: #fff;" id="card-amount">-</div>
+        </div>
+        <div style="background: rgba(0,0,0,0.3); padding: 0.85rem; border-radius: 8px;">
+          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Vendor / Payee</div>
+          <div style="font-size: 0.95rem; font-weight: 600;" id="card-vendor">-</div>
+        </div>
+        <div style="background: rgba(0,0,0,0.3); padding: 0.85rem; border-radius: 8px;">
+          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Audit Timestamp</div>
+          <div style="font-size: 0.85rem; color: var(--text-faint);" id="card-timestamp">-</div>
+        </div>
+      </div>
+
+      <div id="completion-summary-text" style="font-size: 0.9rem; line-height: 1.5; background: rgba(0,0,0,0.25); padding: 1rem; border-radius: 8px; border-left: 3px solid var(--accent-emerald);">
+      </div>
+    </div>
+
+    <!-- Visual Browser / Computer Use Screen -->
+    <div class="glass-panel">
+      <div class="panel-header">
+        <h3>Live Browser / Computer Action View</h3>
+        <span style="font-size: 0.75rem; color: var(--accent-indigo); font-weight: 600;">Playwright Viewport (1280x800)</span>
+      </div>
+      <div id="screenshot-container" style="background: #000; border-radius: 8px; overflow: hidden; min-height: 380px; display: flex; align-items: center; justify-content: center; border: var(--glass-border);">
+        <img id="browser-screenshot" src="" style="width: 100%; height: auto; display: none; object-fit: contain;" alt="Agent Browser View">
+        <div id="browser-placeholder" style="color: var(--text-faint); text-align: center; padding: 2rem;">
+          <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🖥️</div>
+          <p>Browser screen will stream here when agent takes actions</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function setPreset(vendor) {
+  const promptInput = document.getElementById("task-prompt");
+  if (vendor === 'TechCorp') {
+    promptInput.value = "Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done.";
+  } else if (vendor === 'GlobalInc') {
+    promptInput.value = "Locate the pending invoice for GlobalInc, extract the required payment details, submit it to the billing portal, and verify the transaction.";
+  } else if (vendor === 'StartupXYZ') {
+    promptInput.value = "Find overdue invoice INV-1044 for StartupXYZ, extract the amount and details, submit to billing portal, and confirm receipt.";
+  }
+}
+
+function clearLogs() {
+  document.getElementById("activity-log-stream").innerHTML = `
+    <div style="color: var(--text-faint); font-size: 0.88rem; text-align: center; padding: 2rem;">
+      Logs cleared. Ready for next task.
+    </div>
+  `;
+}
+
+async function startAgentTask() {
+  const prompt = document.getElementById("task-prompt").value.trim();
+  if (!prompt) {
+    alert("Please enter a task prompt.");
+    return;
+  }
+
+  const runBtn = document.getElementById("btn-start-task");
+  const statusBadge = document.getElementById("agent-status-badge");
+  const planPanel = document.getElementById("plan-panel");
+  const planContainer = document.getElementById("plan-steps-container");
+  const logStream = document.getElementById("activity-log-stream");
+  const verCard = document.getElementById("verification-card");
+
+  runBtn.disabled = true;
+  runBtn.innerText = "⏳ Agent Working...";
+  statusBadge.className = "badge badge-pending";
+  statusBadge.innerText = "Running ReAct Loop";
+  verCard.style.display = "none";
+  logStream.innerHTML = "";
+  planPanel.style.display = "block";
+  planContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">Formulating plan...</div>';
+
+  try {
+    const res = await fetch("/api/agent/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: prompt })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      appendLog("error", "Failed to start agent task: " + (data.error || "Unknown"));
+      runBtn.disabled = false;
+      runBtn.innerText = "🚀 Run Autonomous Worker";
+      statusBadge.innerText = "Failed";
+      return;
+    }
+
+    const taskId = data.task_id;
+    // Connect to SSE stream
+    listenToAgentStream(taskId);
+
+  } catch (err) {
+    appendLog("error", "Network error starting task: " + err.message);
+    runBtn.disabled = false;
+    runBtn.innerText = "🚀 Run Autonomous Worker";
+    statusBadge.innerText = "Error";
+  }
+}
+
+function listenToAgentStream(taskId) {
+  const evtSource = new EventSource(`/api/agent/stream/${taskId}`);
+
+  evtSource.onmessage = function(e) {
+    const event = JSON.parse(e.data);
+    handleAgentEvent(event, evtSource);
+  };
+
+  evtSource.onerror = function(err) {
+    console.error("SSE stream error", err);
+    evtSource.close();
+    document.getElementById("btn-start-task").disabled = false;
+    document.getElementById("btn-start-task").innerText = "🚀 Run Autonomous Worker";
+  };
+}
+
+function handleAgentEvent(event, evtSource) {
+  const type = event.type;
+
+  if (type === "plan") {
+    renderPlan(event.plan);
+  } else if (type === "thought") {
+    appendLog("thought", event.thought, event.timestamp);
+  } else if (type === "step_result") {
+    updatePlanStep(event.step_id, event.status);
+    appendLog("action", `Step ${event.step_id} [${event.status.toUpperCase()}]: ${event.observation}`, event.timestamp);
+    if (event.screenshot) {
+      updateScreenshot(event.screenshot);
+    }
+  } else if (type === "completed") {
+    appendLog("success", "Goal achieved and verified!", event.timestamp);
+    renderCompletionCard(event);
+    document.getElementById("agent-status-badge").className = "badge badge-approved";
+    document.getElementById("agent-status-badge").innerText = "Completed & Verified";
+    document.getElementById("btn-start-task").disabled = false;
+    document.getElementById("btn-start-task").innerText = "🚀 Run Autonomous Worker";
+    evtSource.close();
+  } else if (type === "error") {
+    appendLog("error", event.message, event.timestamp);
+    document.getElementById("agent-status-badge").className = "badge badge-overdue";
+    document.getElementById("agent-status-badge").innerText = "Execution Failed";
+    document.getElementById("btn-start-task").disabled = false;
+    document.getElementById("btn-start-task").innerText = "🚀 Run Autonomous Worker";
+    evtSource.close();
+  }
+}
+
+function renderPlan(steps) {
+  const container = document.getElementById("plan-steps-container");
+  container.innerHTML = "";
+  document.getElementById("plan-progress-text").innerText = `0 / ${steps.length} Steps`;
+
+  steps.forEach(s => {
+    const div = document.createElement("div");
+    div.id = `plan-step-${s.id}`;
+    div.style = "padding: 0.75rem 1rem; background: rgba(0,0,0,0.25); border-radius: 8px; border-left: 3px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between;";
+    div.innerHTML = `
+      <div style="font-size: 0.88rem;">
+        <strong style="color: var(--accent-indigo); margin-right: 0.5rem;">#${s.id}</strong>
+        <span>${s.description}</span>
+        <div style="font-size: 0.72rem; color: var(--text-faint); margin-top: 0.2rem;">Tool: <code style="color: var(--accent-cyan);">${s.tool}</code></div>
+      </div>
+      <span class="badge" id="badge-step-${s.id}" style="background: rgba(255,255,255,0.05); color: var(--text-muted);">Pending</span>
+    `;
+    container.appendChild(div);
+  });
+}
+
+function updatePlanStep(stepId, status) {
+  const badge = document.getElementById(`badge-step-${stepId}`);
+  const row = document.getElementById(`plan-step-${stepId}`);
+  if (badge && row) {
+    if (status === "completed") {
+      badge.className = "badge badge-approved";
+      badge.innerText = "✓ Done";
+      row.style.borderLeftColor = "var(--accent-emerald)";
+    } else if (status === "failed") {
+      badge.className = "badge badge-overdue";
+      badge.innerText = "✗ Failed";
+      row.style.borderLeftColor = "var(--accent-rose)";
+    } else {
+      badge.className = "badge badge-pending";
+      badge.innerText = "In Progress";
+      row.style.borderLeftColor = "var(--accent-amber)";
+    }
+  }
+}
+
+function appendLog(category, text, timestamp = "") {
+  const stream = document.getElementById("activity-log-stream");
+  const item = document.createElement("div");
+  item.style = "padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.85rem; line-height: 1.4;";
+
+  let icon = "💬";
+  let border = "rgba(99, 102, 241, 0.3)";
+  let bg = "rgba(23, 32, 58, 0.4)";
+
+  if (category === "thought") {
+    icon = "🧠 Thought:";
+    border = "rgba(139, 92, 246, 0.4)";
+    bg = "rgba(139, 92, 246, 0.08)";
+  } else if (category === "action") {
+    icon = "⚙️ Action:";
+    border = "rgba(6, 182, 212, 0.4)";
+    bg = "rgba(6, 182, 212, 0.08)";
+  } else if (category === "success") {
+    icon = "✅ Verified:";
+    border = "rgba(16, 185, 129, 0.5)";
+    bg = "rgba(16, 185, 129, 0.12)";
+  } else if (category === "error") {
+    icon = "⚠️ Error:";
+    border = "rgba(244, 63, 94, 0.5)";
+    bg = "rgba(244, 63, 94, 0.12)";
+  }
+
+  item.style.borderLeft = `3px solid ${border}`;
+  item.style.background = bg;
+
+  item.innerHTML = `
+    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+      <span style="font-weight: 700;">${icon}</span>
+      <span style="font-size: 0.72rem; color: var(--text-faint);">${timestamp}</span>
+    </div>
+    <div style="color: var(--text-main);">${text}</div>
+  `;
+
+  stream.appendChild(item);
+  stream.scrollTop = stream.scrollHeight;
+}
+
+function updateScreenshot(url) {
+  const img = document.getElementById("browser-screenshot");
+  const placeholder = document.getElementById("browser-placeholder");
+  if (url) {
+    img.src = url + "?t=" + new Date().getTime();
+    img.style.display = "block";
+    placeholder.style.display = "none";
+  }
+}
+
+function renderCompletionCard(event) {
+  const verCard = document.getElementById("verification-card");
+  const evidence = event.evidence || {};
+  const entities = event.entities || {};
+
+  document.getElementById("card-conf-id").innerText = evidence.confirmation_id || "APX-CONF-VERIFIED";
+  document.getElementById("card-amount").innerText = entities.amount ? "₹" + entities.amount.toLocaleString() : "-";
+  document.getElementById("card-vendor").innerText = entities.company || "Payee";
+  document.getElementById("card-timestamp").innerText = new Date().toLocaleTimeString();
+  
+  document.getElementById("completion-summary-text").innerHTML = (event.summary || "Task successfully completed.")
+    .replace(/\n/g, "<br>")
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+
+  verCard.style.display = "block";
+}
+</script>
+{% endblock %}

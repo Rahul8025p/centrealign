@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Vendor Invoices{% endblock %}
+{% block page_title %}Vendor Invoices Directory{% endblock %}
+{% block page_subtitle %}Search, filter, and inspect incoming vendor billing accounts{% endblock %}
+
+{% block content %}
+<div class="glass-panel">
+  <div class="panel-header">
+    <form method="GET" action="/invoices" style="display: flex; gap: 0.75rem; width: 100%; max-width: 500px;">
+      <input 
+        type="text" 
+        name="search" 
+        id="input-search-invoices" 
+        class="form-control" 
+        placeholder="Search by vendor name (e.g. TechCorp) or Invoice ID..."
+        value="{{ search }}"
+      >
+      <button type="submit" class="btn btn-secondary" id="btn-submit-search">Search</button>
+      {% if search %}
+      <a href="/invoices" class="btn btn-secondary">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <div class="data-table-container">
+    <table class="data-table" id="table-all-invoices">
+      <thead>
+        <tr>
+          <th>Invoice ID</th>
+          <th>Vendor</th>
+          <th>Contact & Email</th>
+          <th>Category</th>
+          <th>Issue Date</th>
+          <th>Due Date</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in invoices %}
+        <tr id="inv-row-{{ inv.id }}">
+          <td><strong style="color: var(--accent-indigo);">{{ inv.id }}</strong></td>
+          <td class="vendor-name"><strong>{{ inv.company }}</strong></td>
+          <td>
+            <div>{{ inv.contact }}</div>
+            <div style="font-size: 0.75rem; color: var(--text-faint);">{{ inv.email }}</div>
+          </td>
+          <td><span style="color: var(--text-faint);">{{ inv.category }}</span></td>
+          <td>{{ inv.issue_date }}</td>
+          <td class="invoice-due-date">{{ inv.due_date }}</td>
+          <td class="invoice-amount"><strong>₹{{ "{:,}".format(inv.amount) }}</strong></td>
+          <td>
+            {% if inv.status == 'pending' %}
+              <span class="badge badge-pending">Pending</span>
+            {% elif inv.status == 'paid' or inv.status == 'processing' %}
+              <span class="badge badge-confirmed">{{ inv.status }}</span>
+            {% else %}
+              <span class="badge badge-overdue">{{ inv.status }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <div style="display: flex; gap: 0.4rem;">
+              <a href="/invoices/{{ inv.id }}" class="btn btn-secondary btn-sm" id="btn-view-{{ inv.id }}">View</a>
+              <a href="/billing?invoice_id={{ inv.id }}" class="btn btn-primary btn-sm" id="btn-submit-{{ inv.id }}">Pay</a>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+            No invoices matched your query.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

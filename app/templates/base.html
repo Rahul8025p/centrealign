@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ApexFlow ERP{% endblock %} - Enterprise Operations</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div class="brand-text">
+        <h1>ApexFlow</h1>
+        <span>Enterprise ERP</span>
+      </div>
+    </div>
+
+    <ul class="nav-links">
+      <li class="nav-item {% if request.path == '/' %}active{% endif %}">
+        <a href="/" id="nav-dashboard">
+          <span>📊</span> Dashboard
+        </a>
+      </li>
+      <li class="nav-item {% if request.path.startswith('/invoices') %}active{% endif %}">
+        <a href="/invoices" id="nav-invoices">
+          <span>📑</span> Vendor Invoices
+        </a>
+      </li>
+      <li class="nav-item {% if request.path.startswith('/billing') %}active{% endif %}">
+        <a href="/billing" id="nav-billing">
+          <span>💳</span> Billing & Payments
+        </a>
+      </li>
+      <li class="nav-item {% if request.path.startswith('/submissions') %}active{% endif %}">
+        <a href="/submissions" id="nav-submissions">
+          <span>✅</span> Audit Log
+        </a>
+      </li>
+    </ul>
+
+    <div class="sidebar-bottom">
+      <a href="/agent" class="agent-link-card" id="nav-agent-mission">
+        <span style="font-size: 1.4rem;">🤖</span>
+        <div>
+          <div style="font-weight: 600; font-size: 0.88rem;">AI Task Worker</div>
+          <div style="font-size: 0.72rem; color: #94a3b8;">Autonomous Agent Control</div>
+        </div>
+      </a>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <header class="top-bar">
+      <div class="top-bar-title">
+        <h2>{% block page_title %}Dashboard{% endblock %}</h2>
+        <p>{% block page_subtitle %}Corporate Finance & Vendor Disbursal Portal{% endblock %}</p>
+      </div>
+      <div class="top-actions">
+        <div class="system-badge">
+          <div class="pulse-dot"></div>
+          <span>System Online: v2.4</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="resetDemoData()" id="btn-reset-data" title="Reset all test records">
+          🔄 Reset Mock Data
+        </button>
+      </div>
+    </header>
+
+    <div class="content-body">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <script>
+    async function resetDemoData() {
+      if (confirm("Reset demo data to initial sample invoices and clear submissions?")) {
+        try {
+          const res = await fetch('/api/reset', { method: 'POST' });
+          const data = await res.json();
+          alert(data.message || "Reset successful!");
+          window.location.reload();
+        } catch (e) {
+          alert("Error resetting data: " + e.message);
+        }
+      }
+    }
+  </script>
+</body>
+</html>

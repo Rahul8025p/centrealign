@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Audit Log & Submissions{% endblock %}
+{% block page_title %}Audit Log & Verified Submissions{% endblock %}
+{% block page_subtitle %}Immutable record of all processed invoice disbursements and verification hashes{% endblock %}
+
+{% block content %}
+<div class="glass-panel">
+  <div class="panel-header">
+    <h3>Disbursement Submissions Record</h3>
+    <span style="font-size: 0.85rem; color: var(--text-faint);">Total records: {{ submissions|length }}</span>
+  </div>
+
+  <div class="data-table-container">
+    <table class="data-table" id="table-submissions-audit">
+      <thead>
+        <tr>
+          <th>Confirmation ID</th>
+          <th>Invoice ID</th>
+          <th>Vendor / Payee</th>
+          <th>Amount (INR)</th>
+          <th>Due Date</th>
+          <th>Category</th>
+          <th>Processed Timestamp</th>
+          <th>Verification</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sub in submissions %}
+        <tr id="sub-row-{{ sub.confirmation_id }}">
+          <td><code style="color: var(--accent-cyan); font-weight: 700;">{{ sub.confirmation_id }}</code></td>
+          <td><strong style="color: var(--accent-indigo);">{{ sub.invoice_id }}</strong></td>
+          <td>{{ sub.company }}</td>
+          <td><strong>₹{{ "{:,.2f}".format(sub.amount) }}</strong></td>
+          <td>{{ sub.due_date }}</td>
+          <td><span style="color: var(--text-faint);">{{ sub.category }}</span></td>
+          <td><span style="font-size: 0.8rem; color: var(--text-faint);">{{ sub.timestamp }}</span></td>
+          <td>
+            <span class="badge badge-approved" id="verify-badge-{{ sub.invoice_id }}">
+              ✓ Verified
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 3rem;">
+            No submissions recorded yet. The table will update automatically as soon as the AI Task Worker completes tasks!
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

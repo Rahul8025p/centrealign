@@ -1,0 +1,22 @@
+=======================================================
+               INVOICE: INV-1046
+=======================================================
+ISSUED TO: Apex Enterprise Systems Pvt Ltd
+FROM:      FinanceFirst Bank
+CONTACT:   Vikram Singh (vikram@financefirst.in)
+ISSUE DATE: 2024-09-30
+DUE DATE:   2024-10-30
+STATUS:     PAID
+
+SERVICE CATEGORY: Security Audit
+DESCRIPTION:      Cybersecurity audit and penetration testing - Phase 1
+
+-------------------------------------------------------
+SUBTOTAL:   INR 75,000
+TAX (18%):  INR 13,500
+TOTAL DUE:  INR 88,500
+-------------------------------------------------------
+PAYMENT TERMS: Net 30 Days.
+Bank Transfer to HDFC Bank A/C: 50100234981123, IFSC: HDFC0001234
+Reference invoice number INV-1046 during transfer.
+=======================================================
