@@ -53,7 +53,7 @@
     "currency": "INR",
     "due_date": "2024-12-01",
     "issue_date": "2024-11-01",
-    "status": "pending",
+    "status": "processing",
     "category": "Data Analytics",
     "description": "Business intelligence dashboard development and data pipeline setup",
     "tax": 21600,

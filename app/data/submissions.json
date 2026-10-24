@@ -10,5 +10,17 @@
     "timestamp": "2026-10-25 03:42:13",
     "status": "APPROVED_AND_SCHEDULED",
     "verified": true
+  },
+  {
+    "confirmation_id": "APX-CONF-96842-1045",
+    "invoice_id": "INV-1045",
+    "company": "MegaRetail Ltd",
+    "amount": 120000.0,
+    "due_date": "2024-12-01",
+    "category": "General Operations",
+    "notes": "Approved and verified against vendor invoice document.",
+    "timestamp": "2026-10-25 04:09:33",
+    "status": "APPROVED_AND_SCHEDULED",
+    "verified": true
   }
 ]
