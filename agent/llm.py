@@ -69,10 +69,10 @@ Only output the raw JSON array, with no other text."""
         return self._rule_based_planner(prompt)
 
     def _rule_based_planner(self, prompt: str) -> list:
-        """Intelligent decomposition engine for enterprise tasks."""
+        """Intelligent, dynamic decomposition engine for enterprise tasks."""
         p_lower = prompt.lower()
         
-        # Extract vendor name or invoice ID mentioned in prompt
+        # 1. Extract vendor name or invoice ID mentioned in prompt
         vendor = "TechCorp"
         if "globalinc" in p_lower:
             vendor = "GlobalInc"
@@ -90,6 +90,47 @@ Only output the raw JSON array, with no other text."""
         inv_id = inv_match.group(0).upper() if inv_match else None
         target_query = inv_id if inv_id else vendor
 
+        # 2. Classify User Intent:
+        # Check if the user explicitly wants action taken in the billing system
+        submit_keywords = ["submit", "enter", "pay", "payment", "disburse", "fill", "portal", "system", "process payment"]
+        has_submit_intent = any(k in p_lower for k in submit_keywords)
+
+        # Check if user only wants to check verification or status
+        status_keywords = ["status", "is paid", "has been submitted", "verify status", "check status", "audit record"]
+        has_status_intent = any(k in p_lower for k in status_keywords) and not has_submit_intent
+
+        # CASE A: Status Check Only
+        if has_status_intent:
+            return [
+                {
+                    "id": 1,
+                    "action": "verify_outcome_audit",
+                    "description": f"Query audit registry and verify current payment status for '{target_query}'.",
+                    "tool": "verifier_tool",
+                    "params": {"query": target_query}
+                }
+            ]
+
+        # CASE B: Search / Extract Only (User did NOT ask to submit or enter into system)
+        if not has_submit_intent:
+            return [
+                {
+                    "id": 1,
+                    "action": "locate_invoice_document",
+                    "description": f"Locate and inspect invoice document for '{target_query}' across files and ERP repository.",
+                    "tool": "file_tool",
+                    "params": {"query": target_query}
+                },
+                {
+                    "id": 2,
+                    "action": "extract_billing_entities",
+                    "description": "Extract critical invoice details: Invoice ID, Vendor, Amount, Due Date, and Category.",
+                    "tool": "file_tool",
+                    "params": {"query": target_query}
+                }
+            ]
+
+        # CASE C: Full Workflow (Locate -> Extract -> Navigate -> Fill -> Submit -> Verify)
         return [
             {
                 "id": 1,
@@ -136,20 +177,38 @@ Only output the raw JSON array, with no other text."""
         ]
 
     def reason_and_summarize(self, task_goal: str, memory_dict: dict) -> str:
-        """Generates a concise completion report with evidence."""
+        """Generates a concise completion report adapted to the task goal."""
         entities = memory_dict.get("discovered_entities", {})
         evidence = memory_dict.get("evidence", {})
-        conf_id = evidence.get("confirmation_id", "N/A")
+        conf_id = evidence.get("confirmation_id")
         amount = entities.get("amount", "N/A")
         due_date = entities.get("due_date", "N/A")
         vendor = entities.get("company", "Vendor")
         inv_id = entities.get("invoice_id", "Invoice")
+        category = entities.get("category", "General")
 
+        try:
+            amt_formatted = f"₹{float(amount):,}" if amount != "N/A" else "N/A"
+        except (ValueError, TypeError):
+            amt_formatted = f"₹{amount}"
+
+        # If no submission was performed (Search / Inquiry task)
+        if not conf_id:
+            return (
+                f"🔍 **Invoice Information Retrieved**\n\n"
+                f"• **Vendor / Payee:** {vendor}\n"
+                f"• **Invoice Reference:** `{inv_id}`\n"
+                f"• **Billed Amount:** {amt_formatted} (Due: {due_date})\n"
+                f"• **Category:** {category}\n"
+                f"• **Action Status:** Located and verified from source document (no submission requested).\n"
+            )
+
+        # Full Submission Task
         summary = (
             f"🎯 **Task Completed Successfully**\n\n"
             f"• **Vendor / Payee:** {vendor}\n"
             f"• **Invoice Reference:** `{inv_id}`\n"
-            f"• **Total Disbursed:** ₹{amount:,} (Due: {due_date})\n"
+            f"• **Total Disbursed:** {amt_formatted} (Due: {due_date})\n"
             f"• **Audit Confirmation ID:** `{conf_id}`\n"
             f"• **Verification:** Validated against internal ERP audit registry.\n"
         )

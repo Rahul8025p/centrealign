@@ -186,7 +186,7 @@ class TaskOrchestrator:
 
                     elif "verify" in desc.lower() or "audit" in desc.lower() or step.get("action") == "verify_outcome_audit" or step_id == 6:
                         # Verification Tool
-                        inv_id = memory.get_entity("invoice_id")
+                        inv_id = memory.get_entity("invoice_id") or params.get("query")
                         exp_amount = memory.get_entity("amount")
                         exp_vendor = memory.get_entity("company")
                         
@@ -195,6 +195,14 @@ class TaskOrchestrator:
                             expected_amount=exp_amount,
                             expected_vendor=exp_vendor
                         )
+                        if ver_res.get("verified"):
+                            memory.set_entity("invoice_id", inv_id)
+                            if ver_res.get("amount"):
+                                memory.set_entity("amount", ver_res.get("amount"))
+                            vir = ver_res.get("vendor_invoice_record") or {}
+                            if vir.get("vendor_name"):
+                                memory.set_entity("company", vir["vendor_name"])
+                            memory.record_evidence("confirmation_id", ver_res.get("confirmation_id"))
                         
                         if ver_res.get("verified"):
                             memory.record_evidence("verification_result", ver_res)
@@ -239,8 +247,16 @@ class TaskOrchestrator:
                 return memory.to_dict()
 
         # Step 3: Final Verification & Summary
-        ver_check = memory.evidence.get("verification_result")
-        if ver_check and ver_check.get("verified"):
+        has_verify_step = any(s.get("tool") == "verifier_tool" or s.get("action") == "verify_outcome_audit" for s in memory.plan)
+        
+        if has_verify_step:
+            ver_check = memory.evidence.get("verification_result")
+            is_valid = bool(ver_check and ver_check.get("verified"))
+        else:
+            # For search/inquiry tasks, successful retrieval of entities marks completion
+            is_valid = bool(memory.discovered_entities.get("invoice_id") or memory.discovered_entities.get("company"))
+
+        if is_valid:
             memory.is_completed = True
             summary = self.llm.reason_and_summarize(prompt, memory.to_dict())
             emit("completed", {
