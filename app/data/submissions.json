@@ -22,5 +22,29 @@
     "timestamp": "2026-10-25 04:09:33",
     "status": "APPROVED_AND_SCHEDULED",
     "verified": true
+  },
+  {
+    "confirmation_id": "APX-CONF-78245-1044",
+    "invoice_id": "INV-1044",
+    "company": "StartupXYZ",
+    "amount": 55000.0,
+    "due_date": "2024-11-10",
+    "category": "General Operations",
+    "notes": "Approved and verified against vendor invoice document.",
+    "timestamp": "2026-10-25 04:15:35",
+    "status": "APPROVED_AND_SCHEDULED",
+    "verified": true
+  },
+  {
+    "confirmation_id": "APX-CONF-53281-1042",
+    "invoice_id": "INV-1042",
+    "company": "TechCorp Solutions",
+    "amount": 84500.0,
+    "due_date": "2024-11-15",
+    "category": "General Operations",
+    "notes": "Approved and verified against vendor invoice document.",
+    "timestamp": "2026-10-25 04:19:48",
+    "status": "APPROVED_AND_SCHEDULED",
+    "verified": true
   }
 ]

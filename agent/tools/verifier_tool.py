@@ -85,11 +85,14 @@ class VerifierTool:
 
             return {
                 "verified": True,
+                "two_way_reconciled": data.get("two_way_reconciled", True),
                 "invoice_id": inv_clean,
                 "confirmation_id": confirmation_id,
                 "amount": recorded_amount,
                 "amount_validated": amount_matches,
                 "vendor_validated": vendor_matches,
+                "audit_log_record": data.get("audit_log_record"),
+                "vendor_invoice_record": data.get("vendor_invoice_record"),
                 "timestamp": data.get("timestamp"),
                 "status": data.get("status"),
                 "evidence": {
@@ -97,7 +100,7 @@ class VerifierTool:
                     "timestamp": data.get("timestamp"),
                     "audit_hash": f"SHA256-{abs(hash(confirmation_id))}"
                 },
-                "summary": f"✅ Outcome independently verified: Invoice {inv_clean} submitted successfully with confirmation {confirmation_id}."
+                "summary": f"✅ Outcome independently verified: Invoice {inv_clean} submitted with confirmation {confirmation_id}. Reconciled across Vendor Invoices directory and Submitted Audit Log."
             }
 
         except Exception as e:

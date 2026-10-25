@@ -38,7 +38,7 @@
     "currency": "INR",
     "due_date": "2024-11-10",
     "issue_date": "2024-10-10",
-    "status": "overdue",
+    "status": "processing",
     "category": "UI/UX Design",
     "description": "Product design and prototyping for mobile app - Sprint 3",
     "tax": 9900,

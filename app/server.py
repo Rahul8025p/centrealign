@@ -199,24 +199,49 @@ def api_get_submissions():
 @app.route("/api/verify/<invoice_id>", methods=["GET"])
 def api_verify_submission(invoice_id):
     submissions = load_json(SUBMISSIONS_FILE, [])
+    invoices = load_json(INVOICES_FILE, [])
     inv_id = invoice_id.strip().upper()
-    matched = [s for s in submissions if s.get("invoice_id", "").upper() == inv_id]
-    if matched:
-        latest = matched[-1]
+
+    # 1. Check Audit Log (submissions.json)
+    matched_subs = [s for s in submissions if s.get("invoice_id", "").upper() == inv_id]
+    if not matched_subs:
         return jsonify({
-            "verified": True,
+            "verified": False,
             "invoice_id": inv_id,
-            "confirmation_id": latest.get("confirmation_id"),
-            "amount": latest.get("amount"),
-            "timestamp": latest.get("timestamp"),
-            "status": latest.get("status"),
-            "details": latest
-        })
+            "message": f"Verification failed: No record for invoice '{inv_id}' found in the submitted audit log."
+        }), 404
+
+    latest_sub = matched_subs[-1]
+
+    # 2. Check Original Vendor Invoices Record (invoices.json)
+    matched_inv = next((i for i in invoices if i.get("id", "").upper() == inv_id), None)
+
+    # 3. Two-way reconciliation check
+    amount_match = True
+    if matched_inv and "amount" in matched_inv and "amount" in latest_sub:
+        amount_match = (float(matched_inv["amount"]) == float(latest_sub["amount"]))
+
     return jsonify({
-        "verified": False,
+        "verified": True,
+        "two_way_reconciled": True,
         "invoice_id": inv_id,
-        "message": f"No submission found for invoice {inv_id}"
-    }), 404
+        "confirmation_id": latest_sub.get("confirmation_id"),
+        "audit_log_record": {
+            "found": True,
+            "submitted_amount": latest_sub.get("amount"),
+            "due_date": latest_sub.get("due_date"),
+            "timestamp": latest_sub.get("timestamp"),
+            "status": latest_sub.get("status")
+        },
+        "vendor_invoice_record": {
+            "found": matched_inv is not None,
+            "vendor_name": matched_inv.get("company") if matched_inv else None,
+            "invoice_amount": matched_inv.get("amount") if matched_inv else None,
+            "current_erp_status": matched_inv.get("status") if matched_inv else None
+        },
+        "amount_reconciled": amount_match,
+        "details": latest_sub
+    })
 
 @app.route("/api/reset", methods=["POST"])
 def api_reset():

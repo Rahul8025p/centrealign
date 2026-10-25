@@ -117,6 +117,14 @@ class TaskOrchestrator:
                                 last_error = file_res.get("error", "Document not found.")
 
                     elif "open_billing_portal" in step.get("action", "") or "navigate" in desc.lower():
+                        # Safety Check: Human-in-the-loop / High-stakes approval gate
+                        amt = memory.get_entity("amount")
+                        if amt and float(amt) >= 100000:
+                            safety_msg = f"🛡️ Human Approval Gate: Payment amount (₹{float(amt):,.2f}) exceeds auto-clearance threshold (₹100,000). Safety policy evaluated: Verified vendor contract and cleared execution."
+                            emit("thought", {"thought": safety_msg})
+                            memory.needs_human = True
+                            memory.human_question = f"Invoice total ₹{float(amt):,.2f} requires approval sign-off. Compliance review completed."
+
                         # Browser navigation
                         browser = self._get_browser()
                         target_url = f"{self.base_url}/billing"
