@@ -84,17 +84,17 @@
     <!-- Verification & Evidence Card -->
     <div class="glass-panel" id="verification-card" style="margin-bottom: 1.5rem; display: none; border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.05);">
       <div class="panel-header">
-        <h3 style="color: var(--accent-emerald);">🎯 Outcome Verification & Evidence</h3>
+        <h3 id="card-title" style="color: var(--accent-emerald);">🎯 Outcome Verification & Evidence</h3>
         <span class="badge badge-approved" id="verification-badge">Verified</span>
       </div>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
         <div style="background: rgba(0,0,0,0.3); padding: 0.85rem; border-radius: 8px;">
-          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Confirmation ID</div>
-          <div style="font-size: 1rem; font-weight: 700; color: var(--accent-cyan);" id="card-conf-id">-</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;" id="card-label-conf">Confirmation ID</div>
+          <div style="font-size: 0.95rem; font-weight: 700; color: var(--accent-cyan);" id="card-conf-id">-</div>
         </div>
         <div style="background: rgba(0,0,0,0.3); padding: 0.85rem; border-radius: 8px;">
-          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Disbursed Amount</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;" id="card-label-amount">Disbursed Amount</div>
           <div style="font-size: 1rem; font-weight: 700; color: #fff;" id="card-amount">-</div>
         </div>
         <div style="background: rgba(0,0,0,0.3); padding: 0.85rem; border-radius: 8px;">
@@ -342,10 +342,40 @@ function updateScreenshot(url) {
 
 function renderCompletionCard(event) {
   const verCard = document.getElementById("verification-card");
+  const cardTitle = document.getElementById("card-title");
+  const verBadge = document.getElementById("verification-badge");
+  const labelConf = document.getElementById("card-label-conf");
+  const labelAmount = document.getElementById("card-label-amount");
   const evidence = event.evidence || {};
   const entities = event.entities || {};
 
-  document.getElementById("card-conf-id").innerText = evidence.confirmation_id || "APX-CONF-VERIFIED";
+  const isSubmission = Boolean(evidence.confirmation_id);
+
+  if (isSubmission) {
+    cardTitle.innerText = "🎯 Outcome Verification & Evidence";
+    cardTitle.style.color = "var(--accent-emerald)";
+    verBadge.className = "badge badge-approved";
+    verBadge.innerText = "Verified & Submitted";
+    labelConf.innerText = "Confirmation ID";
+    labelAmount.innerText = "Disbursed Amount";
+    document.getElementById("card-conf-id").innerText = evidence.confirmation_id;
+    verCard.style.borderColor = "rgba(16, 185, 129, 0.4)";
+    verCard.style.background = "rgba(16, 185, 129, 0.05)";
+  } else {
+    cardTitle.innerText = "🔍 Extracted Invoice Information";
+    cardTitle.style.color = "var(--accent-cyan)";
+    verBadge.className = "badge";
+    verBadge.style.background = "rgba(6, 182, 212, 0.15)";
+    verBadge.style.color = "var(--accent-cyan)";
+    verBadge.style.border = "1px solid rgba(6, 182, 212, 0.3)";
+    verBadge.innerText = "Info Retrieved (No Submission)";
+    labelConf.innerText = "Submission Status";
+    labelAmount.innerText = "Billed Invoice Amount";
+    document.getElementById("card-conf-id").innerText = "Not Submitted (Read-Only)";
+    verCard.style.borderColor = "rgba(6, 182, 212, 0.4)";
+    verCard.style.background = "rgba(6, 182, 212, 0.05)";
+  }
+
   document.getElementById("card-amount").innerText = entities.amount ? "₹" + entities.amount.toLocaleString() : "-";
   document.getElementById("card-vendor").innerText = entities.company || "Payee";
   document.getElementById("card-timestamp").innerText = new Date().toLocaleTimeString();
