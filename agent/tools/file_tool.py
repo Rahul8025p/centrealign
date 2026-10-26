@@ -1,126 +1,107 @@
 import os
 import re
-import json
+
+MAX_READ_CHARS = 8000
+
+
+def parse_invoice_text(raw_text: str) -> dict:
+    """
+    Best-effort structured extraction from a plain-text invoice document.
+    Returns a dict with invoice_id / company / amount ... (values are None when not found).
+    The payable `amount` is the TOTAL DUE (tax included); the subtotal is only a fallback.
+    """
+    data = {"invoice_id": None, "company": None, "amount": None, "subtotal": None, "tax": None,
+            "issue_date": None, "due_date": None, "category": None, "status": None}
+
+    def find(pattern):
+        m = re.search(pattern, raw_text)
+        return m.group(1).strip() if m else None
+
+    def number(pattern):
+        v = find(pattern)
+        try:
+            return float(v.replace(",", "")) if v else None
+        except ValueError:
+            return None
+
+    data["invoice_id"] = find(r"INVOICE:\s*([A-Za-z0-9\-]+)")
+    data["company"] = find(r"FROM:\s*([^\n\r]+)")
+    data["due_date"] = find(r"DUE DATE:\s*([0-9\-]+)")
+    data["issue_date"] = find(r"ISSUE DATE:\s*([0-9\-]+)")
+    data["category"] = find(r"SERVICE CATEGORY:\s*([^\n\r]+)")
+    status = find(r"STATUS:\s*([A-Za-z]+)")
+    data["status"] = status.lower() if status else None
+    data["subtotal"] = number(r"SUBTOTAL:\s*[A-Z]{3}\s*([0-9,]+(?:\.[0-9]+)?)")
+    data["tax"] = number(r"TAX[^:\n]*:\s*[A-Z]{3}\s*([0-9,]+(?:\.[0-9]+)?)")
+    total_due = number(r"TOTAL DUE:\s*[A-Z]{3}\s*([0-9,]+(?:\.[0-9]+)?)")
+    data["amount"] = total_due if total_due is not None else data["subtotal"]
+    return data
+
 
 class FileTool:
     """
-    Tool for searching, reading, and parsing local invoice documents
-    stored in data/invoices/ or app/data/invoices.json.
+    Sandboxed, generic file access for the agent: list / read / search under the project's `data/`
+    folder (vendor invoice documents live in data/invoices/). Nothing outside `data/` is reachable.
     """
+
     def __init__(self, base_dir: str = None):
-        if base_dir is None:
-            self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        else:
-            self.base_dir = base_dir
-        self.invoices_dir = os.path.join(self.base_dir, "data", "invoices")
+        root = base_dir or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.workspace = os.path.realpath(os.path.join(root, "data"))
 
-    def list_files(self):
-        """Returns list of all invoice documents in the folder."""
-        if not os.path.exists(self.invoices_dir):
-            return []
-        return [f for f in os.listdir(self.invoices_dir) if os.path.isfile(os.path.join(self.invoices_dir, f))]
+    def _resolve(self, rel: str):
+        rel = (rel or "").strip().lstrip("/\\")
+        full = os.path.realpath(os.path.join(self.workspace, rel))
+        if full != self.workspace and not full.startswith(self.workspace + os.sep):
+            return None
+        return full
 
-    def find_invoice(self, query: str):
-        """
-        Searches local invoice files for a given query (e.g., 'TechCorp', 'INV-1042').
-        Returns matched file details and parsed content.
-        """
-        query_norm = query.lower().strip()
-        files = self.list_files()
-        matched_file = None
+    def list_files(self, subdir: str = "") -> dict:
+        base = self._resolve(subdir)
+        if not base or not os.path.isdir(base):
+            return {"ok": False, "error": f"No such folder in the workspace: '{subdir}'."}
+        files = []
+        for dirpath, _dirs, names in os.walk(base):
+            for n in sorted(names):
+                full = os.path.join(dirpath, n)
+                files.append({"path": os.path.relpath(full, self.workspace).replace(os.sep, "/"),
+                              "bytes": os.path.getsize(full)})
+        return {"ok": True, "folder": subdir or ".", "count": len(files), "files": files}
 
-        # Check by filename first
-        for f in files:
-            if query_norm in f.lower().replace("_", " "):
-                matched_file = f
-                break
-
-        # If not found by name, scan content of each file
-        if not matched_file:
-            for f in files:
-                content = self.read_file(f)
-                if query_norm in content.lower():
-                    matched_file = f
-                    break
-
-        if not matched_file:
-            return {
-                "success": False,
-                "error": f"No invoice matching '{query}' found in local invoices repository ({self.invoices_dir}).",
-                "available_files": files
-            }
-
-        parsed_data = self.parse_invoice_file(matched_file)
-        return {
-            "success": True,
-            "filename": matched_file,
-            "filepath": os.path.join(self.invoices_dir, matched_file),
-            "data": parsed_data
-        }
-
-    def read_file(self, filename: str) -> str:
-        """Reads raw text content of an invoice file."""
-        filepath = os.path.join(self.invoices_dir, filename)
-        if not os.path.exists(filepath):
-            return ""
+    def read_file(self, path: str) -> dict:
+        full = self._resolve(path)
+        if not full or not os.path.isfile(full):
+            return {"ok": False, "error": f"File not found in the workspace: '{path}'. Use list_files to see what exists."}
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                return f.read()
-        except Exception as e:
-            return f"Error reading file: {str(e)}"
+            with open(full, "r", encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError as e:
+            return {"ok": False, "error": f"Could not read '{path}': {e}"}
+        result = {"ok": True, "path": os.path.relpath(full, self.workspace).replace(os.sep, "/"),
+                  "content": text[:MAX_READ_CHARS], "truncated": len(text) > MAX_READ_CHARS}
+        parsed = parse_invoice_text(text)
+        if parsed.get("invoice_id"):
+            result["parsed_invoice"] = parsed
+        return result
 
-    def parse_invoice_file(self, filename: str) -> dict:
-        """
-        Extracts structured entities from the text invoice:
-        - invoice_id
-        - company / vendor
-        - amount
-        - due_date
-        - category
-        - description
-        """
-        raw_text = self.read_file(filename)
-        data = {
-            "raw_text": raw_text,
-            "invoice_id": None,
-            "company": None,
-            "amount": None,
-            "due_date": None,
-            "category": None,
-            "status": None
-        }
-
-        # Regex extractors
-        id_match = re.search(r"INVOICE:\s*([A-Za-z0-9\-]+)", raw_text)
-        if id_match:
-            data["invoice_id"] = id_match.group(1).strip()
-
-        from_match = re.search(r"FROM:\s*([^\n]+)", raw_text)
-        if from_match:
-            data["company"] = from_match.group(1).strip()
-
-        due_match = re.search(r"DUE DATE:\s*([0-9\-]+)", raw_text)
-        if due_match:
-            data["due_date"] = due_match.group(1).strip()
-
-        # Look for subtotal or total amount
-        amount_match = re.search(r"SUBTOTAL:\s*[A-Z]{3}\s*([0-9,]+(?:\.[0-9]+)?)", raw_text)
-        if not amount_match:
-            amount_match = re.search(r"TOTAL DUE:\s*[A-Z]{3}\s*([0-9,]+(?:\.[0-9]+)?)", raw_text)
-        
-        if amount_match:
-            clean_num = amount_match.group(1).replace(",", "")
-            try:
-                data["amount"] = float(clean_num)
-            except ValueError:
-                data["amount"] = clean_num
-
-        cat_match = re.search(r"SERVICE CATEGORY:\s*([^\n]+)", raw_text)
-        if cat_match:
-            data["category"] = cat_match.group(1).strip()
-
-        status_match = re.search(r"STATUS:\s*([A-Za-z]+)", raw_text)
-        if status_match:
-            data["status"] = status_match.group(1).strip().lower()
-
-        return data
+    def search(self, query: str, max_hits: int = 20) -> dict:
+        query = (query or "").strip().lower()
+        if not query:
+            return {"ok": False, "error": "Empty search query."}
+        tokens = [t for t in re.split(r"\s+", query) if t]
+        hits, files = [], []
+        for dirpath, _dirs, names in os.walk(self.workspace):
+            for n in sorted(names):
+                full = os.path.join(dirpath, n)
+                try:
+                    with open(full, "r", encoding="utf-8", errors="replace") as fh:
+                        text = fh.read()
+                except OSError:
+                    continue
+                low = text.lower()
+                rel = os.path.relpath(full, self.workspace).replace(os.sep, "/")
+                if query in low or all(t in low for t in tokens):
+                    files.append(rel)
+                    for i, line in enumerate(text.splitlines(), start=1):
+                        if any(t in line.lower() for t in tokens) and len(hits) < max_hits:
+                            hits.append({"path": rel, "line": i, "text": line.strip()[:160]})
+        return {"ok": True, "query": query, "matching_files": files, "hits": hits}

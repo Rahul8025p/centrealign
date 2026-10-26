@@ -33,6 +33,14 @@ else:
         response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
         return response
 
+@app.after_request
+def no_cache_pages(response):
+    """Pages are tiny and change while developing: never let a browser show a stale copy."""
+    if response.mimetype == "text/html":
+        response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Agent-Build"] = "tool-calling"
+    return response
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 INVOICES_FILE = os.path.join(DATA_DIR, "invoices.json")
@@ -129,6 +137,43 @@ def api_get_invoice(inv_id):
         return jsonify({"success": False, "error": f"Invoice {inv_id} not found"}), 404
     return jsonify({"success": True, "invoice": inv})
 
+@app.route("/api", methods=["GET"])
+@app.route("/api/", methods=["GET"])
+def api_catalogue():
+    """Self-describing catalogue so an agent can discover what this system can do."""
+    return jsonify({
+        "service": "ApexFlow Enterprise ERP",
+        "currency": "INR (an invoice's payable amount is its tax-inclusive 'total')",
+        "endpoints": [
+            {"method": "GET", "path": "/api/invoices", "query": ["query (vendor name or invoice id substring)", "status"],
+             "description": "List invoices (fields: id, company, amount=subtotal, tax, total=payable, due_date, issue_date, status, category, notes)."},
+            {"method": "GET", "path": "/api/invoices/<id>", "description": "One invoice in full."},
+            {"method": "POST", "path": "/api/invoices/<id>/notes", "body": {"note": "text"},
+             "description": "Attach a note to an invoice (low risk)."},
+            {"method": "POST", "path": "/api/billing/submit",
+             "body": {"invoice_id": "", "company": "", "amount": "payable total", "due_date": "YYYY-MM-DD", "category": "", "notes": ""},
+             "description": "Submit an invoice for payment. SIDE EFFECT; also available as the form on /billing."},
+            {"method": "GET", "path": "/api/submissions", "description": "Audit log of every payment submission (the source of truth)."},
+            {"method": "GET", "path": "/api/verify/<invoice_id>", "query": ["confirmation_id"],
+             "description": "Check whether a payment record exists for an invoice."},
+        ],
+        "ui_pages": ["/", "/invoices", "/invoices/<id>", "/billing", "/submissions"],
+    })
+
+@app.route("/api/invoices/<inv_id>/notes", methods=["POST"])
+def api_add_note(inv_id):
+    data = request.get_json() or {}
+    text = str(data.get("note", "")).strip()
+    if not text:
+        return jsonify({"success": False, "error": "The 'note' field is required."}), 400
+    invoices = load_json(INVOICES_FILE, [])
+    inv = next((i for i in invoices if i.get("id", "").upper() == inv_id.upper()), None)
+    if not inv:
+        return jsonify({"success": False, "error": f"Invoice {inv_id} not found"}), 404
+    inv.setdefault("notes", []).append({"text": text, "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    save_json(INVOICES_FILE, invoices)
+    return jsonify({"success": True, "invoice_id": inv["id"], "notes": inv["notes"]}), 201
+
 @app.route("/api/billing/submit", methods=["POST"])
 def api_submit_billing():
     data = request.get_json() or request.form.to_dict()
@@ -154,10 +199,32 @@ def api_submit_billing():
             "error": f"Invalid amount format: {amount_str}"
         }), 400
 
-    # Verification: check if invoice exists in invoices.json
+    # Guards: never record a payment for an unknown invoice, a duplicate, or a wrong amount
     invoices = load_json(INVOICES_FILE, [])
     matched_inv = next((i for i in invoices if i.get("id").upper() == invoice_id), None)
-    
+    if not matched_inv:
+        return jsonify({
+            "success": False,
+            "error": f"Invoice {invoice_id} does not exist in the ERP; refusing to record a payment for it."
+        }), 404
+
+    existing = [s for s in load_json(SUBMISSIONS_FILE, []) if s.get("invoice_id", "").upper() == invoice_id]
+    if existing:
+        return jsonify({
+            "success": False,
+            "error": f"Invoice {invoice_id} was already submitted (confirmation {existing[-1].get('confirmation_id')}); duplicate payment blocked.",
+            "existing_confirmation_id": existing[-1].get("confirmation_id")
+        }), 409
+    if str(matched_inv.get("status", "")).lower() == "paid":
+        return jsonify({"success": False, "error": f"Invoice {invoice_id} is already marked as paid in the ERP."}), 409
+
+    payable = float(matched_inv.get("total", matched_inv.get("amount", 0)))
+    if abs(payable - amount) > 1.0:
+        return jsonify({
+            "success": False,
+            "error": f"Amount mismatch: submitted ₹{amount:,.2f} but the ERP payable total for {invoice_id} is ₹{payable:,.2f}."
+        }), 422
+
     # Generate unique confirmation ID
     confirmation_id = f"APX-CONF-{random.randint(10000, 99999)}-{invoice_id[-4:] if len(invoice_id)>=4 else '0000'}"
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -165,9 +232,9 @@ def api_submit_billing():
     submission_record = {
         "confirmation_id": confirmation_id,
         "invoice_id": invoice_id,
-        "company": company or (matched_inv.get("company") if matched_inv else "Unknown"),
+        "company": company or matched_inv.get("company"),
         "amount": amount,
-        "due_date": due_date or (matched_inv.get("due_date") if matched_inv else ""),
+        "due_date": due_date or matched_inv.get("due_date", ""),
         "category": category,
         "notes": notes,
         "timestamp": timestamp,
@@ -179,10 +246,8 @@ def api_submit_billing():
     submissions.append(submission_record)
     save_json(SUBMISSIONS_FILE, submissions)
 
-    # Update status of invoice if it exists
-    if matched_inv:
-        matched_inv["status"] = "processing"
-        save_json(INVOICES_FILE, invoices)
+    matched_inv["status"] = "processing"
+    save_json(INVOICES_FILE, invoices)
 
     return jsonify({
         "success": True,
@@ -204,11 +269,16 @@ def api_verify_submission(invoice_id):
 
     # 1. Check Audit Log (submissions.json)
     matched_subs = [s for s in submissions if s.get("invoice_id", "").upper() == inv_id]
+    wanted_conf = request.args.get("confirmation_id", "").strip()
+    if wanted_conf:
+        matched_subs = [s for s in matched_subs if s.get("confirmation_id") == wanted_conf]
     if not matched_subs:
         return jsonify({
             "verified": False,
             "invoice_id": inv_id,
-            "message": f"Verification failed: No record for invoice '{inv_id}' found in the submitted audit log."
+            "message": f"Verification failed: No record for invoice '{inv_id}'"
+                       + (f" with confirmation '{wanted_conf}'" if wanted_conf else "")
+                       + " found in the submitted audit log."
         }), 404
 
     latest_sub = matched_subs[-1]
@@ -218,14 +288,18 @@ def api_verify_submission(invoice_id):
 
     # 3. Two-way reconciliation check
     amount_match = True
-    if matched_inv and "amount" in matched_inv and "amount" in latest_sub:
-        amount_match = (float(matched_inv["amount"]) == float(latest_sub["amount"]))
+    if matched_inv and "amount" in latest_sub:
+        payable = float(matched_inv.get("total", matched_inv.get("amount", 0)))
+        amount_match = abs(payable - float(latest_sub["amount"])) <= 1.0
 
     return jsonify({
         "verified": True,
-        "two_way_reconciled": True,
+        "two_way_reconciled": amount_match,
         "invoice_id": inv_id,
         "confirmation_id": latest_sub.get("confirmation_id"),
+        "amount": latest_sub.get("amount"),
+        "timestamp": latest_sub.get("timestamp"),
+        "status": latest_sub.get("status"),
         "audit_log_record": {
             "found": True,
             "submitted_amount": latest_sub.get("amount"),
@@ -236,7 +310,7 @@ def api_verify_submission(invoice_id):
         "vendor_invoice_record": {
             "found": matched_inv is not None,
             "vendor_name": matched_inv.get("company") if matched_inv else None,
-            "invoice_amount": matched_inv.get("amount") if matched_inv else None,
+            "invoice_amount": matched_inv.get("total", matched_inv.get("amount")) if matched_inv else None,
             "current_erp_status": matched_inv.get("status") if matched_inv else None
         },
         "amount_reconciled": amount_match,
@@ -341,10 +415,20 @@ from agent.orchestrator import TaskOrchestrator
 
 # Active event queues for SSE streaming: task_id -> queue.Queue
 agent_task_queues = {}
+# Answers from the user to clarification / approval questions: task_id -> queue.Queue
+agent_task_responses = {}
+USER_RESPONSE_TIMEOUT = int(os.environ.get("AGENT_USER_TIMEOUT", 300))
 
 @app.route("/agent")
 def agent_mission_control():
     return render_template("agent_control.html")
+
+@app.route("/api/agent/status")
+def api_agent_status():
+    from agent.llm import LLMClient
+    llm = LLMClient.from_env()
+    ready, message = llm.check()
+    return jsonify({"llm_ready": ready, "message": message, "model": llm.model, "host": llm.host, "agent": "tool-calling"})
 
 @app.route("/api/agent/run", methods=["POST"])
 def api_run_agent():
@@ -356,6 +440,7 @@ def api_run_agent():
     task_id = f"task_{uuid.uuid4().hex[:8]}"
     event_queue = queue.Queue()
     agent_task_queues[task_id] = event_queue
+    agent_task_responses[task_id] = queue.Queue()
 
     port = int(os.environ.get("PORT", 5000))
     base_url = f"http://localhost:{port}"
@@ -366,7 +451,14 @@ def api_run_agent():
             def on_event(event):
                 event_queue.put(event)
 
-            result = orchestrator.run_task(prompt=prompt, task_id=task_id, on_event=on_event)
+            def ask_user(question):
+                """Blocks the agent until the user answers in Mission Control (or the wait times out)."""
+                try:
+                    return agent_task_responses[task_id].get(timeout=USER_RESPONSE_TIMEOUT)
+                except queue.Empty:
+                    return None
+
+            result = orchestrator.run_task(prompt=prompt, task_id=task_id, on_event=on_event, ask_user=ask_user)
         except Exception as e:
             event_queue.put({
                 "type": "error",
@@ -382,6 +474,17 @@ def api_run_agent():
     worker_thread.start()
 
     return jsonify({"success": True, "task_id": task_id})
+
+@app.route("/api/agent/respond/<task_id>", methods=["POST"])
+def api_agent_respond(task_id):
+    """User's answer to a clarification ({"answer": "..."}) or approval ({"approved": true|false})."""
+    if task_id not in agent_task_responses:
+        return jsonify({"success": False, "error": f"Task {task_id} not found"}), 404
+    data = request.get_json() or {}
+    if "approved" not in data and not str(data.get("answer", "")).strip():
+        return jsonify({"success": False, "error": "Provide 'answer' or 'approved'."}), 400
+    agent_task_responses[task_id].put(data)
+    return jsonify({"success": True})
 
 @app.route("/api/agent/stream/<task_id>")
 def api_agent_stream(task_id):

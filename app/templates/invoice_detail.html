@@ -49,7 +49,7 @@
       </div>
       <div style="display: flex; justify-content: space-between; font-size: 1.25rem; font-weight: 700; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.75rem;">
         <span>Total Payable:</span>
-        <span style="color: var(--accent-emerald);" id="invoice-amount">₹{{ "{:,}".format(invoice.amount) }}</span>
+        <span style="color: var(--accent-emerald);" id="invoice-amount">₹{{ "{:,.2f}".format(invoice.total or invoice.amount) }}</span>
       </div>
     </div>
 

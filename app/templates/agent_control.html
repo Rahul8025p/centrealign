@@ -2,7 +2,7 @@
 
 {% block title %}AI Task Worker Mission Control{% endblock %}
 {% block page_title %}AI Task Worker — Autonomous Agent Mission Control{% endblock %}
-{% block page_subtitle %}Live ReAct agent loop, real-time reasoning stream, browser computer-use view, and verification gate{% endblock %}
+{% block page_subtitle %}NEW tool-calling agent: the local model chooses every step · safety guard · independent verification{% endblock %}
 
 {% block content %}
 <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 2rem;">
@@ -18,35 +18,29 @@
 
       <div class="form-group">
         <label class="form-label" for="task-prompt">Enter Natural Language Goal:</label>
-        <textarea 
-          id="task-prompt" 
-          class="form-control" 
-          rows="3" 
-          placeholder="e.g. Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done."
-        >Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done.</textarea>
+        <textarea id="task-prompt" class="form-control" rows="3" placeholder="Describe any task for the worker. It decides its own steps, e.g. &quot;Which invoices are overdue and what is the total outstanding?&quot; or &quot;Pay the GlobalInc invoice.&quot;"></textarea>
       </div>
 
+      <div id="llm-warning" style="display:none; margin-bottom: 1rem; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid rgba(245,158,11,.5); background: rgba(245,158,11,.08); font-size: .85rem;"></div>
       <!-- Quick Preset Buttons -->
       <div style="margin-bottom: 1.25rem;">
         <span style="font-size: 0.78rem; color: var(--text-muted); display: block; margin-bottom: 0.5rem; text-transform: uppercase; font-weight: 600;">
-          Preset Enterprise Scenarios:
+          Example tasks (type anything):
         </span>
         <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-          <button class="btn btn-secondary btn-sm" onclick="setPreset('TechCorp')">
-            🏢 TechCorp Retainer (Standard Flow)
-          </button>
-          <button class="btn btn-secondary btn-sm" onclick="setPreset('GlobalInc')">
-            ☁️ GlobalInc Cloud (Alternative Vendor)
-          </button>
-          <button class="btn btn-secondary btn-sm" onclick="setPreset('StartupXYZ')">
-            ⚠️ StartupXYZ (Overdue Invoice)
-          </button>
+          <button class="btn btn-secondary btn-sm" onclick="setPreset('Which invoices are overdue, and what is the total amount outstanding?')">📊 Analyse the data</button>
+          <button class="btn btn-secondary btn-sm" onclick="setPreset('Pay the GlobalInc invoice and tell me once it is confirmed.')">💳 Pay an invoice</button>
+          <button class="btn btn-secondary btn-sm" onclick="setPreset('Add a note to INV-1044 saying the vendor asked for a payment plan.')">📝 Add a note</button>
+          <button class="btn btn-secondary btn-sm" onclick="setPreset('Pay the MegaRetail invoice.')">🛡️ Needs approval</button>
+          <button class="btn btn-secondary btn-sm" onclick="setPreset('Pay the invoice from Acme Corp.')">❓ Unknown vendor</button>
+          <button class="btn btn-secondary btn-sm" onclick="setPreset('Has the FinanceFirst invoice been paid?')">🔎 Status check</button>
+          <button class="btn btn-secondary btn-sm" onclick="setPreset('What is the capital of France?')">💬 Unrelated question</button>
         </div>
       </div>
 
       <div style="display: flex; justify-content: space-between; align-items: center; border-top: var(--glass-border); padding-top: 1rem;">
         <div style="font-size: 0.8rem; color: var(--text-faint);">
-          ReAct Loop • Self-Healing Retries • Independent Verifier
+          Tool-calling agent • Safety guard • Independent verification
         </div>
         <button class="btn btn-primary" id="btn-start-task" onclick="startAgentTask()">
           🚀 Run Autonomous Worker
@@ -55,9 +49,26 @@
     </div>
 
     <!-- Live Execution Plan -->
+    <!-- Agent question (clarification / approval) -->
+    <div class="glass-panel" id="interaction-panel" style="display: none; margin-bottom: 1.5rem; border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.07);">
+      <div class="panel-header">
+        <h3 id="interaction-title">❓ The agent needs your input</h3>
+      </div>
+      <p id="interaction-question" style="font-size: 0.92rem; line-height: 1.5; margin-bottom: 1rem;"></p>
+      <div id="interaction-options" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;"></div>
+      <div id="interaction-text-row" style="display: flex; gap: 0.5rem;">
+        <input type="text" id="interaction-answer" class="form-control" placeholder="Type your answer" onkeydown="if(event.key==='Enter') sendAnswer()">
+        <button class="btn btn-primary btn-sm" onclick="sendAnswer()">Send</button>
+      </div>
+      <div id="interaction-approval-row" style="display: none; gap: 0.5rem;">
+        <button class="btn btn-primary btn-sm" onclick="sendApproval(true)">✅ Approve payment</button>
+        <button class="btn btn-secondary btn-sm" onclick="sendApproval(false)">⛔ Reject</button>
+      </div>
+    </div>
+
     <div class="glass-panel" id="plan-panel" style="display: none; margin-bottom: 1.5rem;">
       <div class="panel-header">
-        <h3>Decomposed Action Plan</h3>
+        <h3>Agent's Plan</h3>
         <span id="plan-progress-text" style="font-size: 0.85rem; color: var(--accent-cyan);">0 / 0 Steps</span>
       </div>
       <div id="plan-steps-container" style="display: flex; flex-direction: column; gap: 0.75rem;">
@@ -73,7 +84,7 @@
       </div>
       <div id="activity-log-stream" style="max-height: 480px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.85rem; padding-right: 0.5rem;">
         <div style="color: var(--text-faint); font-size: 0.88rem; text-align: center; padding: 2rem;">
-          Waiting for task trigger. Click "Run Autonomous Worker" to start the agent loop.
+          Waiting for a task. The agent chooses its own tools and steps.
         </div>
       </div>
     </div>
@@ -88,7 +99,7 @@
         <span class="badge badge-approved" id="verification-badge">Verified</span>
       </div>
 
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+      <div id="card-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
         <div style="background: rgba(0,0,0,0.3); padding: 0.85rem; border-radius: 8px;">
           <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;" id="card-label-conf">Confirmation ID</div>
           <div style="font-size: 0.95rem; font-weight: 700; color: var(--accent-cyan);" id="card-conf-id">-</div>
@@ -130,261 +141,225 @@
 </div>
 
 <script>
-function setPreset(vendor) {
-  const promptInput = document.getElementById("task-prompt");
-  if (vendor === 'TechCorp') {
-    promptInput.value = "Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done.";
-  } else if (vendor === 'GlobalInc') {
-    promptInput.value = "Locate the pending invoice for GlobalInc, extract the required payment details, submit it to the billing portal, and verify the transaction.";
-  } else if (vendor === 'StartupXYZ') {
-    promptInput.value = "Find overdue invoice INV-1044 for StartupXYZ, extract the amount and details, submit to billing portal, and confirm receipt.";
+let currentTaskId = null;
+
+function setPreset(text) { document.getElementById("task-prompt").value = text; }
+
+function esc(text) {
+  return String(text == null ? "" : text).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
+function setBadge(cls, text) { const b = document.getElementById("agent-status-badge"); b.className = "badge " + cls; b.innerText = text; }
+function resetRunButton() { const b = document.getElementById("btn-start-task"); b.disabled = false; b.innerText = "🚀 Run Autonomous Worker"; }
+function hideInteraction() { document.getElementById("interaction-panel").style.display = "none"; }
+
+fetch("/api/agent/status").then(r => r.json()).then(s => {
+  const w = document.getElementById("llm-warning");
+  if (!s.llm_ready) {
+    w.innerHTML = "⚠️ <strong>Local model not ready.</strong> " + esc(s.message);
+  } else {
+    w.style.cssText += "border-color: rgba(16,185,129,.5); background: rgba(16,185,129,.08);";
+    w.innerHTML = "🧠 <strong>Model:</strong> " + esc(s.model) + " via Ollama. Every step below is chosen by this model, so expect a pause per step.";
   }
+  w.style.display = "block";
+}).catch(() => {});
+
+function showInteraction(event) {
+  const isApproval = event.kind === "approval";
+  document.getElementById("interaction-title").innerText = isApproval ? "🛡️ Approval required" : "❓ The agent has a question";
+  document.getElementById("interaction-question").innerText = event.question;
+  const box = document.getElementById("interaction-options");
+  box.innerHTML = "";
+  if (!isApproval) (event.options || []).forEach(opt => {
+    const b = document.createElement("button");
+    b.className = "btn btn-secondary btn-sm"; b.innerText = opt; b.onclick = () => submitResponse({ answer: opt });
+    box.appendChild(b);
+  });
+  document.getElementById("interaction-text-row").style.display = isApproval ? "none" : "flex";
+  document.getElementById("interaction-approval-row").style.display = isApproval ? "flex" : "none";
+  document.getElementById("interaction-answer").value = "";
+  document.getElementById("interaction-panel").style.display = "block";
+  setBadge("badge-pending", isApproval ? "Awaiting Approval" : "Awaiting Your Answer");
 }
 
+async function submitResponse(payload) {
+  if (!currentTaskId) return;
+  hideInteraction();
+  setBadge("badge-pending", "Agent working");
+  try {
+    await fetch(`/api/agent/respond/${currentTaskId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  } catch (err) { appendLog("error", "Could not send your response: " + err.message); }
+}
+function sendAnswer() { const v = document.getElementById("interaction-answer").value.trim(); if (v) submitResponse({ answer: v }); }
+function sendApproval(approved) { submitResponse({ approved: approved }); }
 function clearLogs() {
-  document.getElementById("activity-log-stream").innerHTML = `
-    <div style="color: var(--text-faint); font-size: 0.88rem; text-align: center; padding: 2rem;">
-      Logs cleared. Ready for next task.
-    </div>
-  `;
+  document.getElementById("activity-log-stream").innerHTML = '<div style="color: var(--text-faint); font-size: 0.88rem; text-align: center; padding: 2rem;">Logs cleared. Ready for next task.</div>';
 }
 
 async function startAgentTask() {
   const prompt = document.getElementById("task-prompt").value.trim();
-  if (!prompt) {
-    alert("Please enter a task prompt.");
-    return;
-  }
-
+  if (!prompt) { alert("Please enter a task."); return; }
   const runBtn = document.getElementById("btn-start-task");
-  const statusBadge = document.getElementById("agent-status-badge");
-  const planPanel = document.getElementById("plan-panel");
-  const planContainer = document.getElementById("plan-steps-container");
-  const logStream = document.getElementById("activity-log-stream");
-  const verCard = document.getElementById("verification-card");
-
-  runBtn.disabled = true;
-  runBtn.innerText = "⏳ Agent Working...";
-  statusBadge.className = "badge badge-pending";
-  statusBadge.innerText = "Running ReAct Loop";
-  verCard.style.display = "none";
-  logStream.innerHTML = "";
-  planPanel.style.display = "block";
-  planContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">Formulating plan...</div>';
-
+  runBtn.disabled = true; runBtn.innerText = "⏳ Agent Working...";
+  setBadge("badge-pending", "Agent working");
+  document.getElementById("verification-card").style.display = "none";
+  document.getElementById("activity-log-stream").innerHTML = "";
+  document.getElementById("plan-panel").style.display = "none";
+  hideInteraction();
   try {
-    const res = await fetch("/api/agent/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: prompt })
-    });
-
+    const res = await fetch("/api/agent/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: prompt }) });
     const data = await res.json();
     if (!res.ok || !data.success) {
       appendLog("error", "Failed to start agent task: " + (data.error || "Unknown"));
-      runBtn.disabled = false;
-      runBtn.innerText = "🚀 Run Autonomous Worker";
-      statusBadge.innerText = "Failed";
-      return;
+      resetRunButton(); setBadge("badge-overdue", "Failed"); return;
     }
-
-    const taskId = data.task_id;
-    // Connect to SSE stream
-    listenToAgentStream(taskId);
-
+    currentTaskId = data.task_id;
+    listenToAgentStream(currentTaskId);
   } catch (err) {
     appendLog("error", "Network error starting task: " + err.message);
-    runBtn.disabled = false;
-    runBtn.innerText = "🚀 Run Autonomous Worker";
-    statusBadge.innerText = "Error";
+    resetRunButton(); setBadge("badge-overdue", "Error");
   }
 }
 
 function listenToAgentStream(taskId) {
-  const evtSource = new EventSource(`/api/agent/stream/${taskId}`);
-
-  evtSource.onmessage = function(e) {
-    const event = JSON.parse(e.data);
-    handleAgentEvent(event, evtSource);
-  };
-
-  evtSource.onerror = function(err) {
-    console.error("SSE stream error", err);
-    evtSource.close();
-    document.getElementById("btn-start-task").disabled = false;
-    document.getElementById("btn-start-task").innerText = "🚀 Run Autonomous Worker";
-  };
+  const src = new EventSource(`/api/agent/stream/${taskId}`);
+  src.onmessage = e => handleAgentEvent(JSON.parse(e.data), src);
+  src.onerror = () => { src.close(); resetRunButton(); };
 }
 
-function handleAgentEvent(event, evtSource) {
-  const type = event.type;
+let thinkTimer = null;
+function startThinkingTimer(step) {
+  clearInterval(thinkTimer);
+  const t0 = Date.now();
+  const tick = () => setBadge("badge-pending", `Thinking (step ${step}) ${Math.round((Date.now() - t0) / 1000)}s` + (step === 1 ? " - first call loads the model" : ""));
+  tick();
+  thinkTimer = setInterval(tick, 1000);
+}
+function stopThinkingTimer() { clearInterval(thinkTimer); }
 
-  if (type === "plan") {
+function fmtArgs(args) {
+  const s = JSON.stringify(args || {});
+  return s.length > 200 ? s.slice(0, 200) + "…" : s;
+}
+
+function handleAgentEvent(event, src) {
+  const t = event.type;
+  if (t !== "thinking") stopThinkingTimer();
+  if (t === "thinking") {
+    startThinkingTimer(event.step);
+  } else if (t === "plan") {
     renderPlan(event.plan);
-  } else if (type === "thought") {
+  } else if (t === "thought") {
     appendLog("thought", event.thought, event.timestamp);
-  } else if (type === "step_result") {
-    updatePlanStep(event.step_id, event.status);
-    appendLog("action", `Step ${event.step_id} [${event.status.toUpperCase()}]: ${event.observation}`, event.timestamp);
-    if (event.screenshot) {
-      updateScreenshot(event.screenshot);
-    }
-  } else if (type === "completed") {
-    appendLog("success", "Goal achieved and verified!", event.timestamp);
-    renderCompletionCard(event);
-    document.getElementById("agent-status-badge").className = "badge badge-approved";
-    document.getElementById("agent-status-badge").innerText = "Completed & Verified";
-    document.getElementById("btn-start-task").disabled = false;
-    document.getElementById("btn-start-task").innerText = "🚀 Run Autonomous Worker";
-    evtSource.close();
-  } else if (type === "error") {
+  } else if (t === "tool_call") {
+    const by = event.model ? `\n(chosen by ${event.model} in ${event.seconds}s)` : "";
+    appendLog("action", `→ ${event.tool}  ${fmtArgs(event.args)}${by}`, event.timestamp);
+  } else if (t === "tool_result") {
+    appendLog(event.blocked ? "error" : (event.ok ? "observe" : "error"), `${event.observation}`, event.timestamp);
+    if (event.screenshot) updateScreenshot(event.screenshot);
+  } else if (t === "needs_input") {
+    appendLog("thought", "Waiting for you: " + event.question, event.timestamp);
+    showInteraction(event);
+  } else if (t === "completed") {
+    appendLog("success", "Finished.", event.timestamp);
+    renderResultCard(event, true);
+    setBadge("badge-approved", (event.evidence || {}).confirmation_id ? "Completed & Verified" : "Completed");
+    resetRunButton(); src.close();
+  } else if (t === "halted") {
+    hideInteraction();
+    appendLog(event.status === "already_submitted" ? "action" : "error", event.message, event.timestamp);
+    renderResultCard(event, false);
+    const names = { needs_input: "Stopped - Needs Input", declined: "Rejected by You", already_submitted: "Already Submitted",
+                    already_paid: "Already Paid", discrepancy: "Discrepancy - Not Submitted", failed: "Failed" };
+    setBadge(event.status === "already_submitted" ? "badge-approved" : "badge-pending", names[event.status] || "Stopped");
+    resetRunButton(); src.close();
+  } else if (t === "error") {
+    hideInteraction();
     appendLog("error", event.message, event.timestamp);
-    document.getElementById("agent-status-badge").className = "badge badge-overdue";
-    document.getElementById("agent-status-badge").innerText = "Execution Failed";
-    document.getElementById("btn-start-task").disabled = false;
-    document.getElementById("btn-start-task").innerText = "🚀 Run Autonomous Worker";
-    evtSource.close();
+    setBadge("badge-overdue", "Execution Failed");
+    resetRunButton(); src.close();
   }
 }
 
 function renderPlan(steps) {
-  const container = document.getElementById("plan-steps-container");
-  container.innerHTML = "";
-  document.getElementById("plan-progress-text").innerText = `0 / ${steps.length} Steps`;
-
+  const panel = document.getElementById("plan-panel");
+  const box = document.getElementById("plan-steps-container");
+  panel.style.display = "block";
+  box.innerHTML = "";
+  const done = steps.filter(s => s.status === "done").length;
+  document.getElementById("plan-progress-text").innerText = `${done} / ${steps.length} Steps`;
+  const look = {
+    done: ["badge-approved", "✓ Done", "var(--accent-emerald)"],
+    in_progress: ["badge-pending", "In Progress", "var(--accent-amber)"],
+    skipped: ["badge", "Skipped", "rgba(255,255,255,0.1)"],
+    pending: ["badge", "Pending", "rgba(255,255,255,0.1)"]
+  };
   steps.forEach(s => {
+    const [cls, label, color] = look[s.status] || look.pending;
     const div = document.createElement("div");
-    div.id = `plan-step-${s.id}`;
-    div.style = "padding: 0.75rem 1rem; background: rgba(0,0,0,0.25); border-radius: 8px; border-left: 3px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between;";
-    div.innerHTML = `
-      <div style="font-size: 0.88rem;">
-        <strong style="color: var(--accent-indigo); margin-right: 0.5rem;">#${s.id}</strong>
-        <span>${s.description}</span>
-        <div style="font-size: 0.72rem; color: var(--text-faint); margin-top: 0.2rem;">Tool: <code style="color: var(--accent-cyan);">${s.tool}</code></div>
-      </div>
-      <span class="badge" id="badge-step-${s.id}" style="background: rgba(255,255,255,0.05); color: var(--text-muted);">Pending</span>
-    `;
-    container.appendChild(div);
+    div.style = "padding: 0.75rem 1rem; background: rgba(0,0,0,0.25); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; border-left: 3px solid " + color;
+    div.innerHTML = `<div style="font-size: 0.88rem;"><strong style="color: var(--accent-indigo); margin-right: 0.5rem;">#${s.id}</strong><span>${esc(s.description)}</span></div><span class="badge ${cls}">${label}</span>`;
+    box.appendChild(div);
   });
-}
-
-function updatePlanStep(stepId, status) {
-  const badge = document.getElementById(`badge-step-${stepId}`);
-  const row = document.getElementById(`plan-step-${stepId}`);
-  if (badge && row) {
-    if (status === "completed") {
-      badge.className = "badge badge-approved";
-      badge.innerText = "✓ Done";
-      row.style.borderLeftColor = "var(--accent-emerald)";
-    } else if (status === "failed") {
-      badge.className = "badge badge-overdue";
-      badge.innerText = "✗ Failed";
-      row.style.borderLeftColor = "var(--accent-rose)";
-    } else {
-      badge.className = "badge badge-pending";
-      badge.innerText = "In Progress";
-      row.style.borderLeftColor = "var(--accent-amber)";
-    }
-  }
 }
 
 function appendLog(category, text, timestamp = "") {
   const stream = document.getElementById("activity-log-stream");
   const item = document.createElement("div");
   item.style = "padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.85rem; line-height: 1.4;";
-
-  let icon = "💬";
-  let border = "rgba(99, 102, 241, 0.3)";
-  let bg = "rgba(23, 32, 58, 0.4)";
-
-  if (category === "thought") {
-    icon = "🧠 Thought:";
-    border = "rgba(139, 92, 246, 0.4)";
-    bg = "rgba(139, 92, 246, 0.08)";
-  } else if (category === "action") {
-    icon = "⚙️ Action:";
-    border = "rgba(6, 182, 212, 0.4)";
-    bg = "rgba(6, 182, 212, 0.08)";
-  } else if (category === "success") {
-    icon = "✅ Verified:";
-    border = "rgba(16, 185, 129, 0.5)";
-    bg = "rgba(16, 185, 129, 0.12)";
-  } else if (category === "error") {
-    icon = "⚠️ Error:";
-    border = "rgba(244, 63, 94, 0.5)";
-    bg = "rgba(244, 63, 94, 0.12)";
-  }
-
+  const looks = {
+    thought: ["🧠 Thought:", "rgba(139, 92, 246, 0.4)", "rgba(139, 92, 246, 0.08)"],
+    action: ["⚙️ Action:", "rgba(6, 182, 212, 0.4)", "rgba(6, 182, 212, 0.08)"],
+    observe: ["👁 Observed:", "rgba(99, 102, 241, 0.4)", "rgba(23, 32, 58, 0.4)"],
+    success: ["✅ Done:", "rgba(16, 185, 129, 0.5)", "rgba(16, 185, 129, 0.12)"],
+    error: ["⚠️ Problem:", "rgba(244, 63, 94, 0.5)", "rgba(244, 63, 94, 0.12)"]
+  };
+  const [icon, border, bg] = looks[category] || ["💬", "rgba(99, 102, 241, 0.3)", "rgba(23, 32, 58, 0.4)"];
   item.style.borderLeft = `3px solid ${border}`;
   item.style.background = bg;
-
-  item.innerHTML = `
-    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
-      <span style="font-weight: 700;">${icon}</span>
-      <span style="font-size: 0.72rem; color: var(--text-faint);">${timestamp}</span>
-    </div>
-    <div style="color: var(--text-main);">${text}</div>
-  `;
-
+  item.innerHTML = `<div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;"><span style="font-weight: 700;">${icon}</span><span style="font-size: 0.72rem; color: var(--text-faint);">${timestamp}</span></div><div style="color: var(--text-main);">${esc(text)}</div>`;
   stream.appendChild(item);
   stream.scrollTop = stream.scrollHeight;
 }
 
 function updateScreenshot(url) {
   const img = document.getElementById("browser-screenshot");
-  const placeholder = document.getElementById("browser-placeholder");
   if (url) {
-    img.src = url + "?t=" + new Date().getTime();
+    img.src = url + "?t=" + Date.now();
     img.style.display = "block";
-    placeholder.style.display = "none";
+    document.getElementById("browser-placeholder").style.display = "none";
   }
 }
 
-function renderCompletionCard(event) {
-  const verCard = document.getElementById("verification-card");
-  const cardTitle = document.getElementById("card-title");
-  const verBadge = document.getElementById("verification-badge");
-  const labelConf = document.getElementById("card-label-conf");
-  const labelAmount = document.getElementById("card-label-amount");
-  const evidence = event.evidence || {};
-  const entities = event.entities || {};
+function renderResultCard(event, success) {
+  const ev = event.evidence || {}, ent = event.entities || {};
+  const isPayment = Boolean(ev.confirmation_id);
+  const existing = ev.existing_confirmation_id;
+  const card = document.getElementById("verification-card");
+  const title = document.getElementById("card-title");
+  const badge = document.getElementById("verification-badge");
+  const palette = success ? ["var(--accent-emerald)", "rgba(16,185,129,0.4)", "rgba(16,185,129,0.05)"]
+                          : ["var(--accent-amber)", "rgba(245,158,11,0.5)", "rgba(245,158,11,0.06)"];
+  title.innerText = success ? (isPayment ? "🎯 Outcome Verification & Evidence" : "✅ Result")
+                            : ({ declined: "⛔ Rejected - nothing was submitted", needs_input: "⏸ Stopped - nothing was changed",
+                                 already_submitted: "ℹ️ Already in the system - no duplicate created", already_paid: "ℹ️ Already paid - nothing submitted",
+                                 discrepancy: "⚠️ Discrepancy - nothing was submitted", failed: "⚠️ The task did not complete" }[event.status] || "⏸ Stopped");
+  title.style.color = palette[0];
+  card.style.borderColor = palette[1]; card.style.background = palette[2];
+  badge.className = success ? "badge badge-approved" : "badge badge-pending";
+  badge.innerText = success ? (isPayment ? "Verified & Submitted" : "Completed") : String(event.status || "stopped").replace(/_/g, " ");
 
-  const isSubmission = Boolean(evidence.confirmation_id);
-
-  if (isSubmission) {
-    cardTitle.innerText = "🎯 Outcome Verification & Evidence";
-    cardTitle.style.color = "var(--accent-emerald)";
-    verBadge.className = "badge badge-approved";
-    verBadge.innerText = "Verified & Submitted";
-    labelConf.innerText = "Confirmation ID";
-    labelAmount.innerText = "Disbursed Amount";
-    document.getElementById("card-conf-id").innerText = evidence.confirmation_id;
-    verCard.style.borderColor = "rgba(16, 185, 129, 0.4)";
-    verCard.style.background = "rgba(16, 185, 129, 0.05)";
-  } else {
-    cardTitle.innerText = "🔍 Extracted Invoice Information";
-    cardTitle.style.color = "var(--accent-cyan)";
-    verBadge.className = "badge";
-    verBadge.style.background = "rgba(6, 182, 212, 0.15)";
-    verBadge.style.color = "var(--accent-cyan)";
-    verBadge.style.border = "1px solid rgba(6, 182, 212, 0.3)";
-    verBadge.innerText = "Info Retrieved (No Submission)";
-    labelConf.innerText = "Submission Status";
-    labelAmount.innerText = "Billed Invoice Amount";
-    document.getElementById("card-conf-id").innerText = "Not Submitted (Read-Only)";
-    verCard.style.borderColor = "rgba(6, 182, 212, 0.4)";
-    verCard.style.background = "rgba(6, 182, 212, 0.05)";
-  }
-
-  document.getElementById("card-amount").innerText = entities.amount ? "₹" + entities.amount.toLocaleString() : "-";
-  document.getElementById("card-vendor").innerText = entities.company || "Payee";
+  // payment-specific boxes only when there is something payment-related to show
+  const showGrid = isPayment || existing || ent.amount;
+  document.getElementById("card-grid").style.display = showGrid ? "grid" : "none";
+  document.getElementById("card-label-conf").innerText = isPayment ? "Confirmation ID" : (existing ? "Existing Confirmation ID" : "Submission Status");
+  document.getElementById("card-conf-id").innerText = ev.confirmation_id || existing || "Not Submitted";
+  document.getElementById("card-label-amount").innerText = isPayment ? "Disbursed Amount" : "Amount";
+  document.getElementById("card-amount").innerText = ent.amount ? "₹" + Number(ent.amount).toLocaleString() : "-";
+  document.getElementById("card-vendor").innerText = ent.company || "-";
   document.getElementById("card-timestamp").innerText = new Date().toLocaleTimeString();
-  
-  document.getElementById("completion-summary-text").innerHTML = (event.summary || "Task successfully completed.")
-    .replace(/\n/g, "<br>")
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-
-  verCard.style.display = "block";
+  document.getElementById("completion-summary-text").innerHTML = esc(event.summary || event.message || "")
+    .replace(/\n/g, "<br>").replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  card.style.display = "block";
 }
 </script>
 {% endblock %}

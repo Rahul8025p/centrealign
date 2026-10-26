@@ -1,215 +1,174 @@
+"""
+LLM client for a LOCAL model served by Ollama (https://ollama.com). No cloud, no API key.
+
+The model is the agent's brain: it receives the conversation plus the tool catalogue and returns
+text or tool calls. Nothing here is task-specific.
+
+Configuration (environment variables, all optional):
+  OLLAMA_HOST     where Ollama listens          (default http://localhost:11434)
+  OLLAMA_MODEL    model to use                  (default qwen2.5:7b - must support tool calling)
+  OLLAMA_NUM_CTX  context window in tokens      (default 16384; Ollama's own default of ~4k would
+                                                 silently truncate the agent's prompt)
+  OLLAMA_TIMEOUT  seconds per model call        (default 300; local models can be slow)
+  OLLAMA_KEEP_ALIVE how long the model stays loaded (default 30m; Ollama's own default is 5m)
+
+Local models are weaker than hosted ones at tool calling, so this client is deliberately forgiving:
+it accepts arguments as a dict or a JSON string, strips <think> blocks, and recovers a tool call that
+a small model wrote as JSON text instead of using the tool-call channel.
+"""
+import json
 import os
 import re
-import json
+import time
 
-class LLMEngine:
-    """
-    Handles LLM reasoning, goal interpretation, and tool-call decisions.
-    
-    Operates in two modes:
-    1. Active API Mode: Uses OpenAI API (e.g., GPT-4o) when OPENAI_API_KEY is configured.
-    2. Autonomous Reasoner Mode: Embedded deterministic agent reasoning engine that
-       interprets tasks, handles edge cases, and executes plans without requiring an external API key.
-    """
-    def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4o")
-        self.client = None
+import requests
 
-        if self.api_key and not self.api_key.startswith("sk-your-openai"):
-            try:
-                from openai import OpenAI
-                self.client = OpenAI(api_key=self.api_key)
-                self.has_api = True
-            except Exception as e:
-                print(f"[LLM] OpenAI client init notice: {e}")
-                self.has_api = False
-        else:
-            self.has_api = False
+DEFAULT_HOST = "http://localhost:11434"
+DEFAULT_MODEL = "qwen2.5:7b"
 
-    def is_api_active(self) -> bool:
-        return self.has_api and self.client is not None
 
-    def plan_task(self, prompt: str) -> list:
-        """
-        Decomposes a user task prompt into an actionable sequence of tool steps.
-        """
-        if self.is_api_active():
-            try:
-                system_prompt = """You are an Autonomous AI Task Worker. Given a user's operational goal, decompose it into a JSON array of sequential steps.
-Each step must have:
-- "id": int
-- "action": short name (e.g., "search_invoice", "extract_data", "navigate_portal", "fill_billing_form", "submit_form", "verify_outcome")
-- "description": human-readable plan description
-- "tool": one of ["file_tool", "browser_tool", "api_tool", "verifier_tool"]
-- "params": object with relevant parameters (such as query, url, fields)
+class LLMError(Exception):
+    """The model could not be reached or returned something unusable (after retries)."""
 
-Only output the raw JSON array, with no other text."""
-                
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": f"Decompose this task: {prompt}"}
-                    ],
-                    temperature=0.1
-                )
-                content = response.choices[0].message.content.strip()
-                # Clean markdown blocks if present
-                content = re.sub(r"^```json\s*", "", content)
-                content = re.sub(r"^```\s*", "", content)
-                content = re.sub(r"\s*```$", "", content)
-                plan = json.loads(content)
-                if isinstance(plan, list) and len(plan) > 0:
-                    return plan
-            except Exception as e:
-                print(f"[LLM] API call failed, switching to Autonomous Reasoner: {e}")
 
-        # Autonomous Reasoner Fallback
-        return self._rule_based_planner(prompt)
+class LLMClient:
+    def __init__(self, host: str = None, model: str = None, num_ctx: int = None, timeout: int = None,
+                 max_retries: int = 2, sleep=time.sleep):
+        self.host = self._normalise_host(host or os.getenv("OLLAMA_HOST") or DEFAULT_HOST)
+        self.model = model or os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL
+        self.num_ctx = int(num_ctx or os.getenv("OLLAMA_NUM_CTX") or 16384)
+        self.timeout = int(timeout or os.getenv("OLLAMA_TIMEOUT") or 300)
+        self.keep_alive = os.getenv("OLLAMA_KEEP_ALIVE") or "30m"
+        self.max_retries, self._sleep = max_retries, sleep
+        self.configured = True  # nothing to configure for a local model; use check() to see if it is usable
 
-    def _rule_based_planner(self, prompt: str) -> list:
-        """Intelligent, dynamic decomposition engine for enterprise tasks."""
-        p_lower = prompt.lower()
-        
-        # 1. Extract vendor name or invoice ID mentioned in prompt
-        vendor = "TechCorp"
-        if "globalinc" in p_lower:
-            vendor = "GlobalInc"
-        elif "startupxyz" in p_lower:
-            vendor = "StartupXYZ"
-        elif "megaretail" in p_lower:
-            vendor = "MegaRetail"
-        elif "financefirst" in p_lower:
-            vendor = "FinanceFirst"
-        elif "techcorp" in p_lower:
-            vendor = "TechCorp"
-            
-        # Detect invoice ID if present
-        inv_match = re.search(r"INV-\d+", prompt, re.IGNORECASE)
-        inv_id = inv_match.group(0).upper() if inv_match else None
-        target_query = inv_id if inv_id else vendor
+    @classmethod
+    def from_env(cls):
+        return cls()
 
-        # 2. Classify User Intent:
-        # Check if the user explicitly wants action taken in the billing system
-        submit_keywords = ["submit", "enter", "pay", "payment", "disburse", "fill", "portal", "system", "process payment"]
-        has_submit_intent = any(k in p_lower for k in submit_keywords)
+    @staticmethod
+    def _normalise_host(host: str) -> str:
+        host = host.strip().rstrip("/")
+        if not host.startswith(("http://", "https://")):
+            host = "http://" + host
+        return host.replace("//0.0.0.0", "//localhost")
 
-        # Check if user only wants to check verification or status
-        status_keywords = ["status", "is paid", "has been submitted", "verify status", "check status", "audit record"]
-        has_status_intent = any(k in p_lower for k in status_keywords) and not has_submit_intent
+    @property
+    def context_chars(self) -> int:
+        """Rough size of the conversation (in characters) that fits the context window."""
+        return int(self.num_ctx * 2.5)
 
-        # CASE A: Status Check Only
-        if has_status_intent:
-            return [
-                {
-                    "id": 1,
-                    "action": "verify_outcome_audit",
-                    "description": f"Query audit registry and verify current payment status for '{target_query}'.",
-                    "tool": "verifier_tool",
-                    "params": {"query": target_query}
-                }
-            ]
-
-        # CASE B: Search / Extract Only (User did NOT ask to submit or enter into system)
-        if not has_submit_intent:
-            return [
-                {
-                    "id": 1,
-                    "action": "locate_invoice_document",
-                    "description": f"Locate and inspect invoice document for '{target_query}' across files and ERP repository.",
-                    "tool": "file_tool",
-                    "params": {"query": target_query}
-                },
-                {
-                    "id": 2,
-                    "action": "extract_billing_entities",
-                    "description": "Extract critical invoice details: Invoice ID, Vendor, Amount, Due Date, and Category.",
-                    "tool": "file_tool",
-                    "params": {"query": target_query}
-                }
-            ]
-
-        # CASE C: Full Workflow (Locate -> Extract -> Navigate -> Fill -> Submit -> Verify)
-        return [
-            {
-                "id": 1,
-                "action": "locate_invoice_document",
-                "description": f"Locate and inspect invoice records for '{target_query}' across file and portal repositories.",
-                "tool": "file_tool",
-                "params": {"query": target_query}
-            },
-            {
-                "id": 2,
-                "action": "extract_billing_entities",
-                "description": "Extract critical billing metadata: Invoice ID, Vendor, Payable Amount, Due Date, and Category.",
-                "tool": "file_tool",
-                "params": {"query": target_query}
-            },
-            {
-                "id": 3,
-                "action": "open_billing_portal",
-                "description": "Launch browser and navigate to internal company billing & disbursal system.",
-                "tool": "browser_tool",
-                "params": {"url": "http://localhost:5000/billing"}
-            },
-            {
-                "id": 4,
-                "action": "populate_billing_form",
-                "description": "Fill internal payment form inputs with verified invoice figures.",
-                "tool": "browser_tool",
-                "params": {}
-            },
-            {
-                "id": 5,
-                "action": "execute_submission",
-                "description": "Trigger submission button and capture confirmation token.",
-                "tool": "browser_tool",
-                "params": {"selector": "#btn-submit-billing"}
-            },
-            {
-                "id": 6,
-                "action": "verify_outcome_audit",
-                "description": "Independently verify transaction status in audit registry and validate confirmation hash.",
-                "tool": "verifier_tool",
-                "params": {}
-            }
-        ]
-
-    def reason_and_summarize(self, task_goal: str, memory_dict: dict) -> str:
-        """Generates a concise completion report adapted to the task goal."""
-        entities = memory_dict.get("discovered_entities", {})
-        evidence = memory_dict.get("evidence", {})
-        conf_id = evidence.get("confirmation_id")
-        amount = entities.get("amount", "N/A")
-        due_date = entities.get("due_date", "N/A")
-        vendor = entities.get("company", "Vendor")
-        inv_id = entities.get("invoice_id", "Invoice")
-        category = entities.get("category", "General")
-
+    # ------------------------------------------------------------------ readiness
+    def check(self):
+        """(ok, message): is Ollama running and is the model installed?"""
         try:
-            amt_formatted = f"₹{float(amount):,}" if amount != "N/A" else "N/A"
-        except (ValueError, TypeError):
-            amt_formatted = f"₹{amount}"
+            r = requests.get(f"{self.host}/api/tags", timeout=4)
+            r.raise_for_status()
+            names = [m.get("name") or m.get("model") or "" for m in r.json().get("models", [])]
+        except (requests.RequestException, ValueError):
+            return False, (f"Ollama is not reachable at {self.host}. Install it from https://ollama.com, "
+                           f"start it (`ollama serve`), then run: ollama pull {self.model}")
+        wanted = {self.model, self.model + ":latest"} if ":" not in self.model else {self.model}
+        if not wanted & set(names):
+            have = ", ".join(names) or "none"
+            return False, f"The model '{self.model}' is not installed. Run: ollama pull {self.model}  (installed: {have})"
+        return True, ""
 
-        # If no submission was performed (Search / Inquiry task)
-        if not conf_id:
-            return (
-                f"🔍 **Invoice Information Retrieved**\n\n"
-                f"• **Vendor / Payee:** {vendor}\n"
-                f"• **Invoice Reference:** `{inv_id}`\n"
-                f"• **Billed Amount:** {amt_formatted} (Due: {due_date})\n"
-                f"• **Category:** {category}\n"
-                f"• **Action Status:** Located and verified from source document (no submission requested).\n"
-            )
+    # ------------------------------------------------------------------ one model turn
+    def chat(self, messages: list, tools: list) -> dict:
+        """
+        Returns {"content": str|None, "tool_calls": [{"id","name","arguments","raw_arguments"}]}.
+        Connection problems, timeouts and 5xx are retried with backoff; anything else raises LLMError.
+        """
+        payload = {"model": self.model, "messages": self._to_ollama(messages), "tools": tools, "stream": False,
+                   "keep_alive": self.keep_alive, "options": {"temperature": 0, "num_ctx": self.num_ctx}}
+        last = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                r = requests.post(f"{self.host}/api/chat", json=payload, timeout=self.timeout)
+            except (requests.ConnectionError, requests.Timeout) as e:
+                last = LLMError(f"Could not reach Ollama at {self.host}: {e}")
+            else:
+                if r.status_code == 404:
+                    raise LLMError(f"Ollama does not have the model '{self.model}'. Run: ollama pull {self.model}")
+                if r.status_code == 400 and "tool" in r.text.lower():
+                    raise LLMError(f"The model '{self.model}' does not support tool calling. "
+                                   "Try qwen2.5:7b, llama3.1:8b or mistral-nemo.")
+                if r.status_code >= 500:
+                    last = LLMError(f"Ollama returned HTTP {r.status_code}: {r.text[:200]}")
+                elif not r.ok:
+                    raise LLMError(f"Ollama returned HTTP {r.status_code}: {r.text[:200]}")
+                else:
+                    try:
+                        return self._normalise(r.json().get("message") or {}, tools)
+                    except ValueError as e:
+                        raise LLMError(f"Ollama sent an unreadable response: {e}")
+            if attempt < self.max_retries:
+                self._sleep(min(2 ** attempt, 8))
+        raise last
 
-        # Full Submission Task
-        summary = (
-            f"🎯 **Task Completed Successfully**\n\n"
-            f"• **Vendor / Payee:** {vendor}\n"
-            f"• **Invoice Reference:** `{inv_id}`\n"
-            f"• **Total Disbursed:** {amt_formatted} (Due: {due_date})\n"
-            f"• **Audit Confirmation ID:** `{conf_id}`\n"
-            f"• **Verification:** Validated against internal ERP audit registry.\n"
-        )
-        return summary
+    # ------------------------------------------------------------------ format translation
+    @staticmethod
+    def _to_ollama(messages: list) -> list:
+        """The agent keeps OpenAI-style history; Ollama wants dict arguments and tool names on tool results."""
+        names = {}
+        out = []
+        for m in messages:
+            if m["role"] == "assistant" and m.get("tool_calls"):
+                calls = []
+                for c in m["tool_calls"]:
+                    fn = c["function"]
+                    try:
+                        args = json.loads(fn.get("arguments") or "{}")
+                    except ValueError:
+                        args = {}
+                    names[c["id"]] = fn["name"]
+                    calls.append({"function": {"name": fn["name"], "arguments": args if isinstance(args, dict) else {}}})
+                out.append({"role": "assistant", "content": m.get("content") or "", "tool_calls": calls})
+            elif m["role"] == "tool":
+                out.append({"role": "tool", "content": m["content"], "tool_name": names.get(m.get("tool_call_id"), "")})
+            else:
+                out.append({"role": m["role"], "content": m.get("content") or ""})
+        return out
+
+    @staticmethod
+    def _normalise(message: dict, tools: list) -> dict:
+        content = message.get("content") or ""
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()
+        calls = []
+        for i, tc in enumerate(message.get("tool_calls") or []):
+            fn = tc.get("function") or {}
+            args = fn.get("arguments", {})
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args or "{}")
+                except ValueError:
+                    args = {"_parse_error": args}
+            if not isinstance(args, dict):
+                args = {"_parse_error": str(args)}
+            calls.append({"name": fn.get("name", ""), "arguments": args})
+        if not calls and content:  # small models sometimes write the call as text
+            calls, content = LLMClient._inline_calls(content, {t["function"]["name"] for t in tools})
+        for i, c in enumerate(calls):
+            c["id"] = f"call_{int(time.time() * 1000) % 10**8}_{i}"
+            c["raw_arguments"] = json.dumps(c["arguments"], ensure_ascii=False)
+        return {"content": content or None, "tool_calls": calls}
+
+    @staticmethod
+    def _inline_calls(content: str, known: set):
+        """Recover {"name": ..., "arguments": {...}} written as plain text (optionally fenced)."""
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end == -1:
+            return [], content
+        try:
+            data = json.loads(text[start:end + 1])
+        except ValueError:
+            return [], content
+        found = []
+        for item in (data if isinstance(data, list) else [data]):
+            if isinstance(item, dict) and item.get("name") in known:
+                args = item.get("arguments", item.get("parameters", {}))
+                if isinstance(args, dict):
+                    found.append({"name": item["name"], "arguments": args})
+        return (found, "") if found else ([], content)

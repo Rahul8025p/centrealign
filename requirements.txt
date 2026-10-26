@@ -1,9 +1,8 @@
 flask>=3.0.0
 flask-cors>=4.0.0
-openai>=1.30.0
 playwright>=1.44.0
 python-dotenv>=1.0.0
-fpdf2>=2.7.9
-python-dateutil>=2.9.0
 requests>=2.31.0
-sseclient-py>=1.8.0
+
+# Optional: only for generate_sample_invoices.py if you also want PDF invoices
+# fpdf2>=2.7.9

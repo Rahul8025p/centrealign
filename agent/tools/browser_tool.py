@@ -99,7 +99,11 @@ class BrowserTool:
             else:
                 return {"success": False, "error": f"Element {selector} not found or not visible."}
 
-            time.sleep(0.5)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=3000)
+            except Exception:
+                pass
+            time.sleep(0.6)
             screenshot = self.capture_screenshot("click")
             return {"success": True, "selector": selector, "screenshot": screenshot}
         except Exception as e:
@@ -124,7 +128,10 @@ class BrowserTool:
 
         try:
             self.page.wait_for_selector(selector, state="visible", timeout=4000)
-            self.page.select_option(selector, value=value)
+            try:
+                self.page.select_option(selector, value=value, timeout=1500)
+            except Exception:
+                self.page.select_option(selector, label=value, timeout=1500)
             return {"success": True, "selector": selector, "value": value}
         except Exception as e:
             return {"success": False, "error": f"Failed to select {value} in {selector}: {str(e)}"}
@@ -140,6 +147,19 @@ class BrowserTool:
             return {"success": True, "selector": selector, "text": text.strip()}
         except Exception as e:
             return {"success": False, "error": f"Failed to extract text from {selector}: {str(e)}"}
+
+    def wait_for_any(self, selectors: list, timeout: int = 6000) -> dict:
+        """Waits until one of the selectors is visible; returns which one and its text."""
+        if not self._ensure_browser():
+            return {"success": False, "error": "Browser not initialized."}
+        try:
+            self.page.wait_for_selector(", ".join(selectors), state="visible", timeout=timeout)
+            for sel in selectors:
+                if self.page.is_visible(sel):
+                    return {"success": True, "selector": sel, "text": self.page.inner_text(sel).strip()}
+            return {"success": False, "error": "Selector became hidden before it could be read."}
+        except Exception as e:
+            return {"success": False, "error": f"None of {selectors} appeared: {str(e)}"}
 
     def extract_table_rows(self, table_selector: str) -> dict:
         """Extracts table data as a structured list of dicts."""
@@ -164,6 +184,86 @@ class BrowserTool:
             return {"success": True, "rows": table_data}
         except Exception as e:
             return {"success": False, "error": f"Failed to extract table from {table_selector}: {str(e)}"}
+
+
+    # ------------------------------------------------------------------
+    # Generic page understanding: lets the agent DISCOVER a page instead of knowing its selectors
+    # ------------------------------------------------------------------
+    _SNAPSHOT_JS = """(maxText) => {
+      const vis = el => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+      const sel = el => {
+        if (el.id) return '#' + CSS.escape(el.id);
+        const name = el.getAttribute('name');
+        if (name) return el.tagName.toLowerCase() + '[name="' + name + '"]';
+        const parts = []; let n = el;
+        while (n && n.nodeType === 1 && n !== document.body) {
+          let i = 1, s = n; while ((s = s.previousElementSibling)) if (s.tagName === n.tagName) i++;
+          parts.unshift(n.tagName.toLowerCase() + ':nth-of-type(' + i + ')'); n = n.parentElement; }
+        return parts.join(' > ');
+      };
+      const label = el => {
+        if (el.id) { const l = document.querySelector('label[for="' + el.id + '"]'); if (l) return l.innerText.trim(); }
+        const w = el.closest('label'); if (w) return w.innerText.trim();
+        return (el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.innerText || el.value || '').trim();
+      };
+      const elements = [];
+      document.querySelectorAll('input,select,textarea,button,a[href]').forEach(el => {
+        if (!vis(el) || el.type === 'hidden') return;
+        const tag = el.tagName.toLowerCase();
+        const item = { selector: sel(el), tag: tag, type: el.type || null, label: label(el).slice(0, 90), disabled: !!el.disabled };
+        if (tag === 'a') item.href = el.getAttribute('href');
+        else if (tag === 'select') { item.value = el.value; item.options = Array.from(el.options).map(o => ({ value: o.value, label: o.text.trim() })); }
+        else if (tag === 'button') item.submits_form = (el.type === 'submit') && !!el.form;
+        else item.value = el.value;
+        if (el.required) item.required = true;
+        if (el.willValidate && !el.validity.valid) item.invalid = el.validationMessage;
+        elements.push(item);
+      });
+      const alerts = Array.from(document.querySelectorAll('[role=alert],.alert')).filter(vis)
+        .map(e => e.innerText.trim()).filter(Boolean);
+      return { url: location.href, title: document.title, text: document.body.innerText.slice(0, maxText),
+               alerts: alerts, elements: elements.slice(0, 80) };
+    }"""
+
+    def snapshot(self, max_text: int = 1500) -> dict:
+        """Visible text, alert banners and every interactive element (selector, label, value, options)."""
+        if not self._ensure_browser():
+            return {"success": False, "error": "Browser engine could not be initialized."}
+        try:
+            snap = self.page.evaluate(self._SNAPSHOT_JS, max_text)
+            snap["success"] = True
+            snap["screenshot"] = self.capture_screenshot("snapshot")
+            return snap
+        except Exception as e:
+            return {"success": False, "error": f"Could not read the page: {e}"}
+
+    def current_url(self) -> str:
+        try:
+            return self.page.url if self.page else ""
+        except Exception:
+            return ""
+
+    def is_submit(self, selector: str) -> bool:
+        """True if clicking this element submits a form (i.e. is a potential side effect)."""
+        try:
+            return bool(self.page.evaluate(
+                "(s) => { const el = document.querySelector(s); return !!el && el.type === 'submit' && !!el.form; }",
+                selector))
+        except Exception:
+            return False
+
+    def form_values(self, selector: str) -> dict:
+        """Current values of the form that contains `selector`, keyed by field name (or id)."""
+        try:
+            return self.page.evaluate("""(s) => {
+                const el = document.querySelector(s); const f = el && el.closest('form'); if (!f) return {};
+                const out = {};
+                f.querySelectorAll('input,select,textarea').forEach(i => {
+                    const k = i.name || i.id; if (k && i.type !== 'hidden') out[k] = i.value; });
+                return out; }""", selector) or {}
+        except Exception:
+            return {}
 
     def capture_screenshot(self, tag: str = "shot") -> str:
         """Captures a screenshot of the current page and returns relative web path."""

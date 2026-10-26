@@ -1,87 +1,155 @@
 """
 Autonomous AI Task Worker - Main Entry Point
 
-Usage:
-  1. Start Web Server & Mission Control UI:
-     python main.py
+  1. Web UI (ApexFlow ERP + Mission Control):
+       python main.py
 
-  2. Run Headless CLI Task directly:
-     python main.py --cli --task "Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done."
+  2. One task from the command line (the ERP is started for you if it is not already running):
+       python main.py --cli --task "Which invoices are overdue and what is the total outstanding?"
+       python main.py --cli --visual --task "Pay the GlobalInc invoice"
+
+The agent runs on a local Ollama model:  ollama pull qwen2.5:7b   (see README).
 """
-
-import sys
-import os
 import argparse
+import os
+import sys
+import threading
 import time
 
-# Ensure UTF-8 output on Windows consoles
 if sys.platform == "win32":
     try:
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
-# Ensure root directory is on Python path
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+try:  # load .env if python-dotenv is installed
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(ROOT_DIR, ".env"))
+except ImportError:
+    pass
+
+
+def port() -> int:
+    return int(os.environ.get("PORT", 5000))
+
+
+def port_in_use() -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(("127.0.0.1", port())) == 0
+
+
+def is_current_server(base: str) -> bool:
+    """True only for THIS version of the app (the /api catalogue and agent status exist only in it)."""
+    import requests
+    try:
+        return requests.get(base + "/api/agent/status", timeout=2).json().get("agent") == "tool-calling"
+    except Exception:
+        return False
+
+
 def run_server():
-    """Starts the ApexFlow ERP Mock Server and Mission Control UI."""
+    """Starts the ApexFlow ERP and the Mission Control UI."""
+    if port_in_use():
+        print(f"\n[!] Port {port()} is already in use - an OLD copy of this app is probably still running, and your")
+        print("    browser would show that old version. Stop it first:")
+        print(f"      Windows:  netstat -ano | findstr :{port()}   then   taskkill /PID <pid> /F")
+        print(f"      Mac/Linux: lsof -i :{port()}   then   kill <pid>")
+        print("    (or start this one on another port:  PORT=5001 python main.py)")
+        sys.exit(1)
     from app.server import app
-    port = int(os.environ.get("PORT", 5000))
+    from agent.llm import LLMClient
+    llm = LLMClient.from_env()
+    ready, problem = llm.check()
     print("=" * 65)
-    print("[*] AUTONOMOUS AI TASK WORKER SYSTEM STARTING")
+    print("[*] AUTONOMOUS AI TASK WORKER")
     print("=" * 65)
-    print(f"[-] ApexFlow ERP Portal:           http://localhost:{port}")
-    print(f"[-] Mission Control (Live Agent):  http://localhost:{port}/agent")
-    print(f"[-] Invoices Directory:            http://localhost:{port}/invoices")
-    print(f"[-] Billing & Payment Portal:      http://localhost:{port}/billing")
-    print(f"[-] Audit Log & Verifications:     http://localhost:{port}/submissions")
+    print(f"[-] Mission Control (agent UI):  http://localhost:{port()}/agent")
+    print(f"[-] ApexFlow ERP:                http://localhost:{port()}")
+    print(f"[-] Local model (Ollama):         {'ready - ' + llm.model if ready else 'NOT READY - ' + problem}")
     print("=" * 65)
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port(), debug=False)
 
-def run_cli(task_prompt: str, visual: bool = False):
-    """Executes a task directly from the command line interface."""
+
+def ensure_erp_running() -> str:
+    """CLI mode talks to the ERP over HTTP, so start it in a background thread when nothing is listening."""
+    import requests
+    base = f"http://localhost:{port()}"
+    if port_in_use():
+        if is_current_server(base):
+            return base
+        print(f"[!] Something on port {port()} is not this version of the app (an old copy may still be running).")
+        print(f"    Stop it (Windows: netstat -ano | findstr :{port()} then taskkill /PID <pid> /F) and try again.")
+        sys.exit(1)
+    from werkzeug.serving import make_server
+    from app.server import app
+    server = make_server("127.0.0.1", port(), app, threaded=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    time.sleep(0.5)
+    print(f"[*] Started the ApexFlow ERP on {base}")
+    return base
+
+
+def run_cli(task_prompt: str, visual: bool = False) -> int:
     from agent.orchestrator import TaskOrchestrator
+    base = ensure_erp_running()
 
     print("=" * 65)
-    print("[*] AUTONOMOUS AI TASK WORKER - CLI MODE")
     print(f"[*] Goal: {task_prompt}")
     print("=" * 65)
 
-    def print_event(evt):
-        etype = evt.get("type")
-        timestamp = evt.get("timestamp", time.strftime("%H:%M:%S"))
-        if etype == "thought":
-            print(f"\n[{timestamp}] 🧠 THOUGHT: {evt.get('thought')}")
-        elif etype == "plan":
-            print(f"\n[{timestamp}] 📋 ACTION PLAN ({len(evt.get('plan', []))} steps):")
-            for s in evt.get("plan", []):
-                print(f"   [{s['id']}] {s['description']} (Tool: {s.get('tool')})")
-        elif etype == "step_result":
-            status_icon = "✓" if evt.get("status") == "completed" else "✗"
-            print(f"[{timestamp}] {status_icon} STEP {evt.get('step_id')}: {evt.get('observation')}")
-        elif etype == "completed":
-            print("\n" + "=" * 65)
-            print(evt.get("summary"))
-            print("=" * 65)
-        elif etype == "error":
-            print(f"\n[{timestamp}] ❌ ERROR: {evt.get('message')}")
+    def on_event(evt):
+        kind, ts = evt.get("type"), evt.get("timestamp", time.strftime("%H:%M:%S"))
+        if kind == "thought":
+            print(f"\n[{ts}] 🧠 {evt['thought']}")
+        elif kind == "plan":
+            print(f"\n[{ts}] 📋 PLAN")
+            icon = {"done": "✓", "in_progress": "→", "skipped": "-", "pending": " "}
+            for s in evt["plan"]:
+                print(f"   [{icon.get(s['status'], ' ')}] {s['id']}. {s['description']}")
+        elif kind == "tool_call":
+            print(f"[{ts}] ⚙️  {evt['tool']} {evt.get('args')}")
+        elif kind == "tool_result":
+            print(f"[{ts}]    {'⛔' if evt.get('blocked') else ('✓' if evt.get('ok') else '✗')} {evt['observation']}")
+        elif kind == "needs_input":
+            print(f"\n[{ts}] ❓ {evt['question']}")
+            if evt.get("options"):
+                print(f"   Options: {', '.join(evt['options'])}")
+        elif kind == "completed":
+            print("\n" + "=" * 65 + f"\n{evt['summary']}\n" + "=" * 65)
+        elif kind == "halted":
+            print("\n" + "=" * 65 + f"\n[{ts}] STOPPED ({evt['status']}): {evt['message']}\n" + "=" * 65)
+        elif kind == "error":
+            print(f"\n[{ts}] ❌ {evt['message']}")
 
-    orchestrator = TaskOrchestrator(base_url="http://localhost:5000", headless=not visual)
-    orchestrator.run_task(prompt=task_prompt, on_event=print_event)
+    def ask_user(question):
+        if not sys.stdin.isatty():
+            return None
+        if question.get("kind") == "approval":
+            return {"approved": input("   Approve? [y/N]: ").strip().lower() in ("y", "yes")}
+        answer = input("   Your answer (blank to cancel): ").strip()
+        return {"answer": answer} if answer else None
+
+    result = TaskOrchestrator(base_url=base, headless=not visual).run_task(
+        prompt=task_prompt, on_event=on_event, ask_user=ask_user)
+    return 0 if result["status"] == "completed" else 1
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Autonomous AI Task Worker")
-    parser.add_argument("--cli", action="store_true", help="Run in CLI mode instead of web server")
-    parser.add_argument("--task", type=str, default="Find the latest invoice from TechCorp, extract the amount and due date, enter it into our internal system, and tell me once it is done.", help="Natural language task prompt")
-    parser.add_argument("--visual", action="store_true", help="Run browser visibly (non-headless)")
-
+    parser.add_argument("--cli", action="store_true", help="Run one task from the command line")
+    parser.add_argument("--task", type=str, help="Natural-language task (required with --cli)")
+    parser.add_argument("--visual", action="store_true", help="Show the browser window while the agent works")
     args = parser.parse_args()
 
     if args.cli:
-        run_cli(args.task, visual=args.visual)
-    else:
-        run_server()
+        if not args.task:
+            parser.error("--cli needs --task \"...\"")
+        sys.exit(run_cli(args.task, visual=args.visual))
+    run_server()
